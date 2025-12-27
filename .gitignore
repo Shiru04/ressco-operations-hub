@@ -1,0 +1,84 @@
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# =========================
+# Logs
+# =========================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Node / Package Managers
+# =========================
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+
+# =========================
+# Env files (ignore ALL)
+# =========================
+.env
+.env.*
+!.env.sample
+!.env.template
+
+# Explicitly ignore these (you requested)
+env.example
+**/env.example
+**/.env
+**/.env.*
+
+# =========================
+# Build outputs
+# =========================
+dist/
+build/
+**/dist/
+**/build/
+
+# Vite
+frontend/.vite/
+**/.vite/
+
+# React build artifacts
+*.tsbuildinfo
+
+# =========================
+# Coverage / Reports
+# =========================
+coverage/
+.nyc_output/
+*.lcov
+
+# =========================
+# Runtime / uploads (if any)
+# =========================
+uploads/
+tmp/
+temp/
+**/uploads/
+**/tmp/
+**/temp/
+
+# =========================
+# PDF / generated artifacts (optional)
+# =========================
+*.pdf
+
+# =========================
+# Mongo / local db (if any)
+# =========================
+data/
+dump/
