@@ -43,27 +43,41 @@ export default function PiecesBoard({ order, reloadOrder }) {
 
   useEffect(() => {
     const src = order?.takeoff?.items || [];
-    const mapped = src.map((x, idx) => ({
-      id: String(x._id || x.id),
-      lineNo: x.lineNo ?? idx + 1,
-      typeCode: x.typeCode,
-      qty: x.qty ?? 1,
-      ga: x.ga || "",
-      remarks: x.remarks || "",
-      measurements: x.measurements || {},
-      pieceStatus: x.pieceStatus || "queued",
 
-      assignedQueueKey: x.assignedQueueKey || "",
-      assignedTo: x.assignedTo || null,
-      assignedAt: x.assignedAt || null,
-      timer: x.timer || {
-        state: "idle",
-        accumulatedSec: 0,
-        startedAt: null,
-        pausedAt: null,
-      },
-      workLog: x.workLog || [],
-    }));
+    const mapped = src.map((x, idx) => {
+      // ✅ canonical stable identity
+      const stableId = String(x.pieceUid || x._id || x.id);
+
+      return {
+        id: stableId, // used by drag/drop + API calls
+        mongoId: String(x._id || x.id || ""), // keep for debugging/back-compat
+        pieceUid: x.pieceUid ? String(x.pieceUid) : null,
+        pieceRef: x.pieceRef || null,
+
+        lineNo: x.lineNo ?? idx + 1,
+        typeCode: x.typeCode,
+        qty: x.qty ?? 1,
+        ga: x.ga || "",
+        material: x.material || "",
+        remarks: x.remarks || "",
+        measurements: x.measurements || {},
+
+        // IMPORTANT: do not change logic; pieceStatus is the queue key
+        pieceStatus: x.pieceStatus || x.assignedQueueKey || "queued",
+        assignedQueueKey: x.assignedQueueKey || x.pieceStatus || "",
+        assignedTo: x.assignedTo || null,
+        assignedAt: x.assignedAt || null,
+
+        timer: x.timer || {
+          state: "idle",
+          accumulatedSec: 0,
+          startedAt: null,
+          pausedAt: null,
+        },
+        workLog: x.workLog || [],
+      };
+    });
+
     setPieces(mapped);
   }, [order]);
 
@@ -106,7 +120,7 @@ export default function PiecesBoard({ order, reloadOrder }) {
     const { active, over } = event;
     if (!active?.id || !over?.id) return;
 
-    const pieceId = String(active.id);
+    const pieceId = String(active.id); // ✅ this is now pieceUid
 
     const from = findContainerByPieceId(pieceId);
     const to = String(over.id).startsWith("pcol:")
@@ -121,6 +135,7 @@ export default function PiecesBoard({ order, reloadOrder }) {
     );
 
     try {
+      // ✅ pass stable id
       await apiPatchTakeoffItemStatus(order.id, pieceId, to);
       await reloadOrder?.();
     } catch (e) {

@@ -8,7 +8,11 @@ const {
 } = require("./order.pieceProduction.service");
 
 function actor(req) {
-  return { userId: req.auth?.sub || null, role: req.auth?.role || null };
+  const a = req.auth || {};
+  return {
+    userId: a.sub || a.userId || a.id || null,
+    role: a.role || null,
+  };
 }
 
 async function patchAssignPiece(req, res, next) {

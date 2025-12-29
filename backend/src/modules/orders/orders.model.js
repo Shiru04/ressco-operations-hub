@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 const { ORDER_STATUSES } = require("../../shared/constants/orderStatuses");
 
 const ApprovalSchema = new mongoose.Schema(
@@ -84,8 +85,65 @@ const TakeoffHeaderSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Server-authoritative timer persisted on each takeoff item.
+// IMPORTANT: Keep types consistent with existing frontend expectations (strings).
+const PieceTimerSchema = new mongoose.Schema(
+  {
+    state: {
+      type: String,
+      enum: ["idle", "running", "paused", "stopped"],
+      default: "idle",
+      trim: true,
+    },
+    startedAt: { type: Date, default: null },
+    pausedAt: { type: Date, default: null },
+    accumulatedSec: { type: Number, default: 0, min: 0 },
+
+    // Session bookkeeping so "stop while paused" can still produce a correct workLog entry.
+    sessionStartedAt: { type: Date, default: null },
+    sessionStartAccumulatedSec: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
+const PieceWorkLogEntrySchema = new mongoose.Schema(
+  {
+    userId: { type: String, default: null, trim: true }, // keep string for v1 consistency
+    startedAt: { type: Date, default: null },
+    endedAt: { type: Date, default: null },
+    durationSec: { type: Number, default: 0, min: 0 },
+    notes: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+function uuid() {
+  // Node supports crypto.randomUUID() in modern versions; safe for Render
+  try {
+    return crypto.randomUUID();
+  } catch {
+    // fallback: 24-hex (still stable)
+    return new mongoose.Types.ObjectId().toHexString();
+  }
+}
+
+function pad2(n) {
+  const x = Number(n) || 0;
+  return x < 10 ? `0${x}` : String(x);
+}
+
 const TakeoffItemSchema = new mongoose.Schema(
   {
+    // === Stable identity + human reference ===
+    // pieceUid: immutable stable identifier used by frontend/APIs/audit
+    pieceUid: { type: String, default: () => uuid(), trim: true },
+
+    // pieceRef: human-friendly identifier per order, per typeCode (e.g., F-1-01, D1-02)
+    pieceRef: { type: String, default: null, trim: true },
+
+    // optional: keep any legacy/client-generated id if you want (non-authoritative)
+    clientItemId: { type: String, default: null, trim: true },
+
     lineNo: { type: Number, default: 0 }, // display ordering
     typeCode: { type: String, required: true, trim: true }, // e.g., "F-1"
     qty: { type: Number, default: 1, min: 0 },
@@ -93,9 +151,20 @@ const TakeoffItemSchema = new mongoose.Schema(
     material: { type: String, default: null, trim: true }, // optional
     measurements: { type: Object, default: {} }, // keys: W1,D1,...,M (string/number safe)
     remarks: { type: String, default: "", trim: true },
+
+    // Queue/status (your existing behavior: pieceStatus is queue key).
     pieceStatus: { type: String, default: "queued", trim: true },
+
+    // Needed because service writes assignedQueueKey; keep it mirrored with pieceStatus via service.
+    assignedQueueKey: { type: String, default: "queued", trim: true },
+
+    // Keep existing string types (do NOT convert to ObjectId to avoid breaking frontend).
     assignedTo: { type: String, default: null, trim: true },
     assignedAt: { type: String, default: null, trim: true },
+
+    // Timer + work history persistence
+    timer: { type: PieceTimerSchema, default: () => ({}) },
+    workLog: { type: [PieceWorkLogEntrySchema], default: [] },
   },
   { _id: true }
 );
@@ -170,8 +239,60 @@ const OrderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/**
+ * Auto-ensure stable pieceUid and human pieceRef.
+ * - pieceUid: generated once if missing.
+ * - pieceRef: generated once if missing (per typeCode counter).
+ *
+ * This runs whenever the order is saved, including takeoff patch flows that call doc.save().
+ */
+OrderSchema.pre("save", function ensurePieceIds(next) {
+  try {
+    const items = this.takeoff?.items || [];
+    if (!Array.isArray(items) || items.length === 0) return next();
+
+    // ensure pieceUid exists
+    for (const it of items) {
+      if (!it.pieceUid) it.pieceUid = uuid();
+    }
+
+    // generate pieceRef if missing (stable once set)
+    const counters = {};
+    // First pass: count existing refs to avoid collisions when mixing old/new
+    for (const it of items) {
+      const tc = (it.typeCode || "").trim() || "X";
+      if (!counters[tc]) counters[tc] = 0;
+
+      if (it.pieceRef) {
+        // if pieceRef is like "F-1-03", try to set counter >= 3
+        const m = String(it.pieceRef).match(/-(\d{1,3})$/);
+        if (m) {
+          const n = Number(m[1]);
+          if (Number.isFinite(n) && n > counters[tc]) counters[tc] = n;
+        }
+      }
+    }
+
+    // Second pass: assign refs to missing ones
+    for (const it of items) {
+      if (it.pieceRef) continue;
+      const tc = (it.typeCode || "").trim() || "X";
+      if (!counters[tc]) counters[tc] = 0;
+      counters[tc] += 1;
+      it.pieceRef = `${tc}-${pad2(counters[tc])}`;
+    }
+
+    return next();
+  } catch (e) {
+    return next(e);
+  }
+});
+
 OrderSchema.index({ customerId: 1, createdAt: -1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
+
+// for fast lookup by stable uid
+OrderSchema.index({ "takeoff.items.pieceUid": 1 });
 
 const Order = mongoose.model("Order", OrderSchema);
 

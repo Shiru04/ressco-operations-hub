@@ -9,6 +9,7 @@ import AppShell from "../components/layout/AppShell";
 import OrdersPage from "../pages/orders/OrdersPage";
 import OrderDetailPage from "../pages/orders/OrderDetailPage";
 import OrdersBoardPage from "../pages/orders/OrdersBoardPage";
+import ProductionQueuesPage from "../pages/admin/ProductionQueuesPage";
 
 function PrivateRoute({ children }) {
   const { isAuthed, booting } = useAuth();
@@ -35,6 +36,12 @@ export default function AppRoutes() {
         <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:id" element={<OrderDetailPage />} />
         <Route path="orders/board" element={<OrdersBoardPage />} />
+
+        {/* Admin */}
+        <Route
+          path="admin/production-queues"
+          element={<ProductionQueuesPage />}
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

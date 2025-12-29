@@ -10,11 +10,33 @@ function oid(id) {
   return mongoose.Types.ObjectId.createFromHexString(String(id));
 }
 
+function findTakeoffItem(order, itemIdOrUid) {
+  const items = order?.takeoff?.items || [];
+  if (!itemIdOrUid) return null;
+
+  const raw = String(itemIdOrUid);
+
+  // Try Mongo subdoc _id first (backward compatible)
+  if (mongoose.isValidObjectId(raw)) {
+    const byId = order.takeoff?.items?.id(raw);
+    if (byId) return byId;
+  }
+
+  // Then try stable pieceUid
+  const byUid = items.find((it) => String(it.pieceUid || "") === raw);
+  if (byUid) return byUid;
+
+  // Optional: also support legacy clientItemId if present
+  const byClient = items.find((it) => String(it.clientItemId || "") === raw);
+  if (byClient) return byClient;
+
+  return null;
+}
+
 async function countActivePiecesForUser(userId) {
   const uid = oid(userId);
   if (!uid) return 0;
 
-  // Count takeoff items assigned to user with running/paused timers
   const pipeline = [
     { $match: { "takeoff.items.assignedTo": uid } },
     { $unwind: "$takeoff.items" },
@@ -40,7 +62,6 @@ async function pickNextUserForQueue(queueKey) {
 
   if (!candidates.length) return null;
 
-  // compute load per user
   const enriched = [];
   for (const u of candidates) {
     const q = (u.productionQueues || []).find((x) => x.key === queueKey) || {
@@ -66,6 +87,24 @@ async function pickNextUserForQueue(queueKey) {
   return enriched[0].user;
 }
 
+function ensureTimer(item) {
+  if (!item.timer) item.timer = {};
+  if (!item.timer.state) item.timer.state = "idle";
+  if (typeof item.timer.accumulatedSec !== "number")
+    item.timer.accumulatedSec = 0;
+  if (!("startedAt" in item.timer)) item.timer.startedAt = null;
+  if (!("pausedAt" in item.timer)) item.timer.pausedAt = null;
+
+  if (!("sessionStartedAt" in item.timer)) item.timer.sessionStartedAt = null;
+  if (typeof item.timer.sessionStartAccumulatedSec !== "number") {
+    item.timer.sessionStartAccumulatedSec = 0;
+  }
+}
+
+function ensureWorkLog(item) {
+  if (!Array.isArray(item.workLog)) item.workLog = [];
+}
+
 async function assignPiece({ orderId, itemId, actor, queueKey, userId }) {
   const order = await Order.findById(orderId);
   if (!order) {
@@ -75,7 +114,7 @@ async function assignPiece({ orderId, itemId, actor, queueKey, userId }) {
     throw err;
   }
 
-  const item = order.takeoff?.items?.id(itemId);
+  const item = findTakeoffItem(order, itemId);
   if (!item) {
     const err = new Error("Takeoff item not found");
     err.code = "TAKEOFF_ITEM_NOT_FOUND";
@@ -83,30 +122,25 @@ async function assignPiece({ orderId, itemId, actor, queueKey, userId }) {
     throw err;
   }
 
+  ensureTimer(item);
+  ensureWorkLog(item);
+
+  // === DO NOT CHANGE QUEUE LOGIC ===
   if (queueKey) {
     const next = String(queueKey).trim();
     item.assignedQueueKey = next;
     item.pieceStatus = next; // ✅ keep status in sync with queue
   }
 
-  let assignedUser = null;
-
+  // Auto assignment is disabled going forward
   if (userId === "auto") {
-    assignedUser = await pickNextUserForQueue(
-      item.assignedQueueKey || "cutting"
-    );
-    if (!assignedUser) {
-      const err = new Error("No available users in queue");
-      err.code = "NO_QUEUE_USERS";
-      err.statusCode = 409;
-      throw err;
-    }
-    item.assignedTo = assignedUser._id;
-    item.assignedAt = new Date();
-    item.assignedBy = oid(actor.userId);
-    assignedUser.lastAutoAssignedAt = new Date();
-    await assignedUser.save();
-  } else if (userId) {
+    const err = new Error("Auto assignment is disabled");
+    err.code = "AUTO_ASSIGN_DISABLED";
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (userId) {
     const uid = oid(userId);
     if (!uid) {
       const err = new Error("Invalid userId");
@@ -114,11 +148,10 @@ async function assignPiece({ orderId, itemId, actor, queueKey, userId }) {
       err.statusCode = 400;
       throw err;
     }
-    item.assignedTo = uid;
-    item.assignedAt = new Date();
+    item.assignedTo = String(uid); // keep string storage
+    item.assignedAt = new Date().toISOString();
     item.assignedBy = oid(actor.userId);
   } else {
-    // unassign
     item.assignedTo = null;
     item.assignedAt = null;
     item.assignedBy = oid(actor.userId);
@@ -126,13 +159,18 @@ async function assignPiece({ orderId, itemId, actor, queueKey, userId }) {
 
   await order.save();
 
+  // Audit with stable itemId = pieceUid for long-term traceability
   await writeAudit({
     entityType: "order",
     entityId: order._id,
     action: "piece_assign",
     changes: {
-      itemId,
+      itemId: String(item.pieceUid || item._id),
+      mongoItemId: String(item._id),
+      pieceUid: String(item.pieceUid || ""),
+      pieceRef: item.pieceRef || null,
       assignedQueueKey: item.assignedQueueKey,
+      pieceStatus: item.pieceStatus,
       assignedTo: item.assignedTo,
     },
     actorUserId: actor.userId,
@@ -143,7 +181,11 @@ async function assignPiece({ orderId, itemId, actor, queueKey, userId }) {
 
   return {
     orderId: order._id,
-    itemId,
+    // keep backward compatible fields, add stable ones
+    itemId: String(item.pieceUid || item._id),
+    mongoItemId: String(item._id),
+    pieceUid: String(item.pieceUid || ""),
+    pieceRef: item.pieceRef || null,
     assignedQueueKey: item.assignedQueueKey,
     assignedTo: item.assignedTo,
     assignedAt: item.assignedAt,
@@ -162,44 +204,52 @@ async function timerStart({ orderId, itemId, actor }) {
       statusCode: 404,
     });
 
-  const item = order.takeoff?.items?.id(itemId);
+  const item = findTakeoffItem(order, itemId);
   if (!item)
     throw Object.assign(new Error("Takeoff item not found"), {
       code: "TAKEOFF_ITEM_NOT_FOUND",
       statusCode: 404,
     });
 
-  // enforce assignment for accountability
+  ensureTimer(item);
+  ensureWorkLog(item);
+
   if (!item.assignedTo) {
     throw Object.assign(
       new Error("Piece must be assigned before starting timer"),
-      {
-        code: "ASSIGN_REQUIRED",
-        statusCode: 409,
-      }
+      { code: "ASSIGN_REQUIRED", statusCode: 409 }
     );
   }
 
   if (item.timer.state === "running") return mapTimer(item);
+  if (item.timer.state === "paused") {
+    throw Object.assign(new Error("Timer is paused. Use resume."), {
+      code: "TIMER_PAUSED",
+      statusCode: 409,
+    });
+  }
 
   item.timer.state = "running";
   item.timer.startedAt = new Date();
   item.timer.pausedAt = null;
 
+  item.timer.sessionStartedAt = item.timer.startedAt;
+  item.timer.sessionStartAccumulatedSec = item.timer.accumulatedSec || 0;
+
   await order.save();
 
   await writeAudit({
-    entityType: "order",
-    entityId: order._id,
-    action: "piece_timer_start",
-    changes: { itemId },
+    entityType: "piece",
+    entityId: String(itemId),
+    action: "piece_timer_start", // (or pause/resume/stop)
+    changes: { orderId: String(order._id), itemId },
     actorUserId: actor.userId,
     actorRole: actor.role,
   });
 
   emitOrderUpdated(order._id);
 
-  return mapTimer(item);
+  return { ...mapTimer(item), workLog: item.workLog || [] };
 }
 
 async function timerPause({ orderId, itemId, actor }) {
@@ -210,18 +260,22 @@ async function timerPause({ orderId, itemId, actor }) {
       statusCode: 404,
     });
 
-  const item = order.takeoff?.items?.id(itemId);
+  const item = findTakeoffItem(order, itemId);
   if (!item)
     throw Object.assign(new Error("Takeoff item not found"), {
       code: "TAKEOFF_ITEM_NOT_FOUND",
       statusCode: 404,
     });
 
+  ensureTimer(item);
+  ensureWorkLog(item);
+
   if (item.timer.state !== "running") return mapTimer(item);
 
   const startedAt = item.timer.startedAt
     ? Math.floor(new Date(item.timer.startedAt).getTime() / 1000)
     : null;
+
   if (startedAt) {
     const delta = nowSec() - startedAt;
     item.timer.accumulatedSec =
@@ -235,17 +289,17 @@ async function timerPause({ orderId, itemId, actor }) {
   await order.save();
 
   await writeAudit({
-    entityType: "order",
-    entityId: order._id,
-    action: "piece_timer_pause",
-    changes: { itemId },
+    entityType: "piece",
+    entityId: String(itemId),
+    action: "piece_timer_pause", // (or pause/resume/stop)
+    changes: { orderId: String(order._id), itemId },
     actorUserId: actor.userId,
     actorRole: actor.role,
   });
 
   emitOrderUpdated(order._id);
 
-  return mapTimer(item);
+  return { ...mapTimer(item), workLog: item.workLog || [] };
 }
 
 async function timerResume({ orderId, itemId, actor }) {
@@ -256,12 +310,15 @@ async function timerResume({ orderId, itemId, actor }) {
       statusCode: 404,
     });
 
-  const item = order.takeoff?.items?.id(itemId);
+  const item = findTakeoffItem(order, itemId);
   if (!item)
     throw Object.assign(new Error("Takeoff item not found"), {
       code: "TAKEOFF_ITEM_NOT_FOUND",
       statusCode: 404,
     });
+
+  ensureTimer(item);
+  ensureWorkLog(item);
 
   if (item.timer.state !== "paused") return mapTimer(item);
 
@@ -272,17 +329,17 @@ async function timerResume({ orderId, itemId, actor }) {
   await order.save();
 
   await writeAudit({
-    entityType: "order",
-    entityId: order._id,
-    action: "piece_timer_resume",
-    changes: { itemId },
+    entityType: "piece",
+    entityId: String(itemId),
+    action: "piece_timer_resume", // (or pause/resume/stop)
+    changes: { orderId: String(order._id), itemId },
     actorUserId: actor.userId,
     actorRole: actor.role,
   });
 
   emitOrderUpdated(order._id);
 
-  return mapTimer(item);
+  return { ...mapTimer(item), workLog: item.workLog || [] };
 }
 
 async function timerStop({ orderId, itemId, actor, notes = "" }) {
@@ -293,14 +350,19 @@ async function timerStop({ orderId, itemId, actor, notes = "" }) {
       statusCode: 404,
     });
 
-  const item = order.takeoff?.items?.id(itemId);
+  const item = findTakeoffItem(order, itemId);
   if (!item)
     throw Object.assign(new Error("Takeoff item not found"), {
       code: "TAKEOFF_ITEM_NOT_FOUND",
       statusCode: 404,
     });
 
-  // if running, finalize into accumulated
+  ensureTimer(item);
+  ensureWorkLog(item);
+
+  const sessionStart = item.timer.sessionStartedAt || null;
+  const sessionStartAccum = item.timer.sessionStartAccumulatedSec || 0;
+
   if (item.timer.state === "running" && item.timer.startedAt) {
     const startedAt = Math.floor(
       new Date(item.timer.startedAt).getTime() / 1000
@@ -308,13 +370,24 @@ async function timerStop({ orderId, itemId, actor, notes = "" }) {
     const delta = nowSec() - startedAt;
     item.timer.accumulatedSec =
       (item.timer.accumulatedSec || 0) + Math.max(0, delta);
+  }
 
-    // add work session
+  const sessionDuration = Math.max(
+    0,
+    (item.timer.accumulatedSec || 0) - sessionStartAccum
+  );
+
+  const endedAt =
+    item.timer.state === "paused" && item.timer.pausedAt
+      ? item.timer.pausedAt
+      : new Date();
+
+  if (sessionDuration > 0 || (notes && String(notes).trim())) {
     item.workLog.push({
-      userId: item.assignedTo,
-      startedAt: new Date(startedAt * 1000),
-      endedAt: new Date(),
-      durationSec: Math.max(0, delta),
+      userId: item.assignedTo || null,
+      startedAt: sessionStart,
+      endedAt,
+      durationSec: sessionDuration,
       notes: notes || "",
     });
   }
@@ -323,25 +396,33 @@ async function timerStop({ orderId, itemId, actor, notes = "" }) {
   item.timer.startedAt = null;
   item.timer.pausedAt = null;
 
+  item.timer.sessionStartedAt = null;
+  item.timer.sessionStartAccumulatedSec = 0;
+
   await order.save();
 
   await writeAudit({
-    entityType: "order",
-    entityId: order._id,
-    action: "piece_timer_stop",
-    changes: { itemId },
+    entityType: "piece",
+    entityId: String(itemId),
+    action: "piece_timer_stop", // (or pause/resume/stop)
+    changes: { orderId: String(order._id), itemId },
     actorUserId: actor.userId,
     actorRole: actor.role,
   });
 
   emitOrderUpdated(order._id);
 
-  return mapTimer(item);
+  return { ...mapTimer(item), workLog: item.workLog || [] };
 }
 
 function mapTimer(item) {
   return {
-    itemId: String(item._id),
+    // stable id for frontend; keep mongo id as extra
+    itemId: String(item.pieceUid || item._id),
+    mongoItemId: String(item._id),
+    pieceUid: String(item.pieceUid || ""),
+    pieceRef: item.pieceRef || null,
+
     state: item.timer?.state || "idle",
     startedAt: item.timer?.startedAt || null,
     pausedAt: item.timer?.pausedAt || null,

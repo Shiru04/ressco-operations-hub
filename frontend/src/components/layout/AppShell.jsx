@@ -24,6 +24,7 @@ import { useTheme } from "@mui/material/styles";
 import { useAuth } from "../../app/providers/AuthProvider";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import NotificationsBell from "./NotificationsBell";
+import SettingsIcon from "@mui/icons-material/Settings";
 
 const FULL_DRAWER = 240;
 const MINI_DRAWER = 72;
@@ -43,10 +44,22 @@ export default function AppShell() {
     [isMdUp, collapsed]
   );
 
-  const navItems = [
-    { label: "Customers", icon: <PeopleAltIcon />, path: "/customers" },
-    { label: "Orders", icon: <AssignmentIcon />, path: "/orders" },
-  ];
+  const navItems = useMemo(() => {
+    const items = [
+      { label: "Customers", icon: <PeopleAltIcon />, path: "/customers" },
+      { label: "Orders", icon: <AssignmentIcon />, path: "/orders" },
+    ];
+
+    if (user?.role === "admin") {
+      items.push({
+        label: "Production Queues",
+        icon: <SettingsIcon />,
+        path: "/admin/production-queues",
+      });
+    }
+
+    return items;
+  }, [user?.role]);
 
   const drawerContent = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -159,7 +172,6 @@ export default function AppShell() {
 
   return (
     <Box sx={{ display: "flex" }}>
-      {/* AppBar must shift right on desktop to avoid sitting under the drawer */}
       <AppBar
         position="fixed"
         elevation={0}
@@ -193,7 +205,6 @@ export default function AppShell() {
         </Toolbar>
       </AppBar>
 
-      {/* Desktop drawer */}
       <Drawer
         variant="permanent"
         sx={{
@@ -213,7 +224,6 @@ export default function AppShell() {
         {drawerContent}
       </Drawer>
 
-      {/* Mobile drawer */}
       <Drawer
         variant="temporary"
         open={mobileOpen}
@@ -227,7 +237,6 @@ export default function AppShell() {
         {drawerContent}
       </Drawer>
 
-      {/* Main must shift right on desktop to avoid being under the drawer */}
       <Box
         component="main"
         sx={{

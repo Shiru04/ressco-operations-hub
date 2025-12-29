@@ -384,10 +384,35 @@ function mapOrder(o) {
     priority: o.priority,
     sla: o.sla || {},
     status: o.status,
+
     takeoff: {
       header: o.takeoff?.header || {},
-      items: o.takeoff?.items || [],
+      items: (o.takeoff?.items || []).map((it) => ({
+        _id: it._id,
+        id: it._id, // compatibility for older UI code
+        pieceUid: it.pieceUid || null,
+        pieceRef: it.pieceRef || null,
+        clientItemId: it.clientItemId || null,
+
+        lineNo: it.lineNo ?? 0,
+        typeCode: it.typeCode,
+        qty: it.qty ?? 1,
+        ga: it.ga ?? null,
+        material: it.material ?? null,
+        measurements: it.measurements || {},
+        remarks: it.remarks || "",
+
+        pieceStatus: it.pieceStatus,
+        assignedQueueKey: it.assignedQueueKey,
+        assignedTo: it.assignedTo || null,
+        assignedAt: it.assignedAt || null,
+        assignedBy: it.assignedBy || null,
+
+        timer: it.timer || {},
+        workLog: it.workLog || [],
+      })),
     },
+
     approvals: {
       required: o.approvals?.required ?? 1,
       approvedBy: (o.approvals?.approvedBy || []).map((a) => ({
@@ -395,6 +420,7 @@ function mapOrder(o) {
         at: a.at,
       })),
     },
+
     estimate: o.estimate || {},
     items: (o.items || []).map((i) => ({
       id: i._id,
@@ -402,11 +428,8 @@ function mapOrder(o) {
       qty: i.qty,
       unitPrice: i.unitPrice,
       notes: i.notes,
-      assignedQueueKey: i.pieceStatus || null,
-      assignedTo: i.assignedTo || null,
-      assignedAt: i.assignedAt || null,
-      assignedBy: i.assignedBy || null,
     })),
+
     notes: o.notes || "",
     audit: o.audit || {},
     createdBy: o.createdBy || null,

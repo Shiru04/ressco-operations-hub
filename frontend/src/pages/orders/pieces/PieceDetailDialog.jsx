@@ -1,4 +1,3 @@
-// frontend/src/pages/orders/pieces/PieceDetailDialog.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -21,6 +20,7 @@ import {
   apiPieceTimerStart,
   apiPieceTimerStop,
 } from "../../../api/orders.api";
+import PieceHistoryPanel from "./PieceHistoryPanel";
 
 function formatDuration(sec) {
   const s = Math.max(0, Number(sec) || 0);
@@ -50,35 +50,48 @@ export default function PieceDetailDialog({
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // IMPORTANT: dialog renders from localPiece so timer/buttons update immediately
+  const [localPiece, setLocalPiece] = useState(null);
+
   const [queueKey, setQueueKey] = useState("");
   const [manualUserId, setManualUserId] = useState("");
   const [stopNotes, setStopNotes] = useState("");
 
-  // Initialize local form fields when piece changes
+  // Sync localPiece whenever a new piece is opened / changed
   useEffect(() => {
+    setLocalPiece(piece || null);
+  }, [piece?.id, open]); // piece.id is your stable UUID
+
+  // Initialize local form fields when localPiece changes
+  useEffect(() => {
+    const p = localPiece;
+    if (!p) return;
+
     const defaultQueue =
-      piece?.assignedQueueKey ||
-      piece?.pieceStatus ||
+      p?.assignedQueueKey ||
+      p?.pieceStatus ||
       boardColumns?.[0]?.key ||
       "queued";
+
     setQueueKey(defaultQueue);
-    setManualUserId(piece?.assignedTo ? String(piece.assignedTo) : "");
+    setManualUserId(p?.assignedTo ? String(p.assignedTo) : "");
     setStopNotes("");
     setErr("");
   }, [
-    piece?.id,
-    piece?.assignedQueueKey,
-    piece?.pieceStatus,
-    piece?.assignedTo,
+    localPiece?.id,
+    localPiece?.assignedQueueKey,
+    localPiece?.pieceStatus,
+    localPiece?.assignedTo,
     boardColumns,
   ]);
 
-  const timer = piece?.timer || {
+  const timer = localPiece?.timer || {
     state: "idle",
     accumulatedSec: 0,
     startedAt: null,
     pausedAt: null,
   };
+
   const isRunning = timer.state === "running";
   const isPaused = timer.state === "paused";
 
@@ -108,17 +121,60 @@ export default function PieceDetailDialog({
     [boardColumns]
   );
 
+  function applyTimerResult(timerResult) {
+    if (!timerResult) return;
+
+    setLocalPiece((prev) => {
+      if (!prev) return prev;
+
+      const nextTimer = {
+        ...(prev.timer || {}),
+        state: timerResult.state ?? prev.timer?.state ?? "idle",
+        accumulatedSec:
+          typeof timerResult.accumulatedSec === "number"
+            ? timerResult.accumulatedSec
+            : Number(prev.timer?.accumulatedSec) || 0,
+        startedAt: timerResult.startedAt ?? null,
+        pausedAt: timerResult.pausedAt ?? null,
+      };
+
+      const next = { ...prev, timer: nextTimer };
+
+      // If your backend returns workLog on stop, keep it in sync
+      if (Array.isArray(timerResult.workLog)) {
+        next.workLog = timerResult.workLog;
+      }
+
+      return next;
+    });
+
+    // Let parent/board update without requiring a full re-fetch
+    onOptimisticChange?.({
+      id: localPiece?.id,
+      timer: timerResult,
+    });
+  }
+
   async function persistAssignment({ nextQueueKey, nextUserId }) {
     setErr("");
     setBusy(true);
     try {
-      await apiAssignPiece(orderId, piece.id, {
+      // piece.id is stable UUID
+      await apiAssignPiece(orderId, localPiece.id, {
         queueKey: nextQueueKey,
-        userId: nextUserId || null, // manual only
+        userId: nextUserId || null,
       });
 
+      // update local piece immediately
+      setLocalPiece((prev) => ({
+        ...prev,
+        pieceStatus: nextQueueKey,
+        assignedQueueKey: nextQueueKey,
+        assignedTo: nextUserId || null,
+      }));
+
       onOptimisticChange?.({
-        id: piece.id,
+        id: localPiece.id,
         pieceStatus: nextQueueKey,
         assignedQueueKey: nextQueueKey,
         assignedTo: nextUserId || null,
@@ -132,25 +188,34 @@ export default function PieceDetailDialog({
     }
   }
 
-  async function runTimer(fn, { closeAfter = false } = {}) {
+  // Timer runner that patches local state from the API response
+  async function runTimer(fn, { closeAfter = false, clearNotes = false } = {}) {
     setErr("");
     setBusy(true);
     try {
-      await fn();
+      const result = await fn(); // <-- must use returned timer payload
+      applyTimerResult(result);
+
+      if (clearNotes) setStopNotes("");
+
       await onChanged?.();
       if (closeAfter) onClose?.();
     } catch (e) {
-      setErr(`${e.code}: ${e.message}`);
+      setErr(`${e.code || "ERROR"}: ${e.message || String(e)}`);
     } finally {
       setBusy(false);
     }
   }
 
-  if (!piece) return null;
+  if (!localPiece) return null;
 
   const assignedUserLabel =
-    users.find((u) => String(u.id) === String(piece.assignedTo))?.name ||
-    (piece.assignedTo ? String(piece.assignedTo) : "—");
+    users.find((u) => String(u.id) === String(localPiece.assignedTo))?.name ||
+    (localPiece.assignedTo ? String(localPiece.assignedTo) : "—");
+
+  const displayPieceName =
+    localPiece.pieceRef ||
+    `${localPiece.typeCode || "Piece"} #${localPiece.lineNo || "—"}`;
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
@@ -163,21 +228,24 @@ export default function PieceDetailDialog({
         }}
       >
         <Box>
-          <Typography sx={{ fontWeight: 900 }}>
-            Piece #{piece.lineNo} — {piece.typeCode}
-          </Typography>
+          <Typography sx={{ fontWeight: 900 }}>{displayPieceName}</Typography>
           <Typography variant="body2" sx={{ opacity: 0.8 }}>
-            Qty {piece.qty} {piece.ga ? `| GA ${piece.ga}` : ""}
+            Qty {localPiece.qty} {localPiece.ga ? `| GA ${localPiece.ga}` : ""}{" "}
+            {localPiece.material ? `| ${localPiece.material}` : ""}
           </Typography>
         </Box>
-        <Chip size="small" label={`Status: ${piece.pieceStatus || "queued"}`} />
+        <Chip
+          size="small"
+          label={`Status: ${localPiece.pieceStatus || "queued"}`}
+        />
       </DialogTitle>
 
       <DialogContent sx={{ display: "grid", gap: 2 }}>
         {err ? <Alert severity="error">{err}</Alert> : null}
 
         <Alert severity="info">
-          Measurements: <b>{measurementsToText(piece.measurements) || "—"}</b>
+          Measurements:{" "}
+          <b>{measurementsToText(localPiece.measurements) || "—"}</b>
         </Alert>
 
         <Box
@@ -253,11 +321,6 @@ export default function PieceDetailDialog({
             <Typography variant="caption" sx={{ opacity: 0.75 }}>
               Current assigned: {assignedUserLabel}
             </Typography>
-
-            <Alert severity="warning">
-              Changing the Production Queue will move the piece to that column
-              (status) after saving.
-            </Alert>
           </Box>
 
           {/* Timer */}
@@ -273,9 +336,9 @@ export default function PieceDetailDialog({
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
               <Button
                 variant="contained"
-                disabled={busy || isRunning || !piece.assignedTo}
+                disabled={busy || isRunning || !localPiece.assignedTo}
                 onClick={() =>
-                  runTimer(() => apiPieceTimerStart(orderId, piece.id))
+                  runTimer(() => apiPieceTimerStart(orderId, localPiece.id))
                 }
               >
                 Start
@@ -285,7 +348,7 @@ export default function PieceDetailDialog({
                 variant="outlined"
                 disabled={busy || !isRunning}
                 onClick={() =>
-                  runTimer(() => apiPieceTimerPause(orderId, piece.id))
+                  runTimer(() => apiPieceTimerPause(orderId, localPiece.id))
                 }
               >
                 Pause
@@ -295,7 +358,7 @@ export default function PieceDetailDialog({
                 variant="outlined"
                 disabled={busy || !isPaused}
                 onClick={() =>
-                  runTimer(() => apiPieceTimerResume(orderId, piece.id))
+                  runTimer(() => apiPieceTimerResume(orderId, localPiece.id))
                 }
               >
                 Resume
@@ -317,15 +380,15 @@ export default function PieceDetailDialog({
               disabled={busy || (!isRunning && !isPaused)}
               onClick={() =>
                 runTimer(
-                  () => apiPieceTimerStop(orderId, piece.id, stopNotes),
-                  { closeAfter: false }
+                  () => apiPieceTimerStop(orderId, localPiece.id, stopNotes),
+                  { closeAfter: false, clearNotes: true }
                 )
               }
             >
               Stop (commit work session)
             </Button>
 
-            {!piece.assignedTo ? (
+            {!localPiece.assignedTo ? (
               <Alert severity="warning">
                 Assign a user before starting the timer (required for
                 accountability).
@@ -334,56 +397,10 @@ export default function PieceDetailDialog({
           </Box>
         </Box>
 
-        {/* Work history */}
         <Divider />
 
-        <Box sx={{ display: "grid", gap: 1 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-            Work History
-          </Typography>
-
-          {(piece.workLog || []).length === 0 ? (
-            <Typography variant="body2" sx={{ opacity: 0.8 }}>
-              No work sessions yet.
-            </Typography>
-          ) : (
-            <Box sx={{ display: "grid", gap: 1 }}>
-              {piece.workLog.map((w, idx) => {
-                const userName =
-                  users.find((u) => String(u.id) === String(w.userId))?.name ||
-                  String(w.userId);
-                return (
-                  <Box
-                    key={`${String(w.userId)}-${idx}`}
-                    sx={{
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      borderRadius: 2,
-                      p: 1,
-                      display: "grid",
-                      gap: 0.25,
-                    }}
-                  >
-                    <Typography sx={{ fontWeight: 700 }}>
-                      User: {userName}
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                      {new Date(w.startedAt).toLocaleString()} →{" "}
-                      {new Date(w.endedAt).toLocaleString()}
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                      Duration: {formatDuration(w.durationSec)}
-                    </Typography>
-                    {w.notes ? (
-                      <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                        Notes: {w.notes}
-                      </Typography>
-                    ) : null}
-                  </Box>
-                );
-              })}
-            </Box>
-          )}
-        </Box>
+        {/* History (UUID id for piece) */}
+        <PieceHistoryPanel pieceId={localPiece?.id} dense />
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>

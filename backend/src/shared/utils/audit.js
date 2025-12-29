@@ -1,6 +1,13 @@
 const mongoose = require("mongoose");
 const { AuditEvent } = require("../../modules/audit/audit.model");
 
+function toObjectIdMaybe(v) {
+  if (!v) return null;
+  const s = String(v);
+  if (!mongoose.isValidObjectId(s)) return null;
+  return mongoose.Types.ObjectId.createFromHexString(s);
+}
+
 async function writeAudit({
   entityType,
   entityId,
@@ -8,26 +15,22 @@ async function writeAudit({
   changes = {},
   actorUserId = null,
   actorRole = null,
-  req = null,
 }) {
-  const meta = req
-    ? {
-        ip: req.ip || null,
-        userAgent: req.headers?.["user-agent"] || null,
-      }
-    : { ip: null, userAgent: null };
+  const et = String(entityType || "").trim();
+  const eid =
+    entityId === undefined || entityId === null ? "" : String(entityId).trim();
+  const act = String(action || "").trim();
 
-  return AuditEvent.create({
-    entityType,
-    entityId: mongoose.Types.ObjectId.createFromHexString(String(entityId)),
-    action,
-    changes,
-    actorUserId: actorUserId
-      ? mongoose.Types.ObjectId.createFromHexString(String(actorUserId))
-      : null,
-    actorRole,
-    at: new Date(),
-    meta,
+  if (!et || !eid || !act) return;
+
+  await AuditEvent.create({
+    entityType: et,
+    entityId: eid,
+    action: act,
+    changes: changes || {},
+    actorUserId: toObjectIdMaybe(actorUserId),
+    actorRole: actorRole ? String(actorRole) : null,
+    at: new Date(), // ALWAYS
   });
 }
 

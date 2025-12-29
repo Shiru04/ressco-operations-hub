@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -11,6 +11,7 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
+import { DataGrid } from "@mui/x-data-grid";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   apiCustomerOrders,
@@ -24,6 +25,11 @@ function PriorityChip({ value }) {
   return <Chip size="small" label={v} />;
 }
 
+function StatusChip({ value }) {
+  const v = value || "received";
+  return <Chip size="small" label={v} />;
+}
+
 export default function CustomerDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -33,19 +39,69 @@ export default function CustomerDetailPage() {
   const [tab, setTab] = useState(0);
 
   const [loading, setLoading] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const [editOpen, setEditOpen] = useState(false);
 
-  async function load() {
+  const orderColumns = useMemo(
+    () => [
+      {
+        field: "orderNumber",
+        headerName: "Order #",
+        width: 150,
+      },
+      {
+        field: "status",
+        headerName: "Status",
+        width: 160,
+        renderCell: (params) => <StatusChip value={params.row?.status} />,
+        sortable: false,
+      },
+      {
+        field: "priority",
+        headerName: "Priority",
+        width: 140,
+        renderCell: (params) => (
+          <PriorityChip value={params.row?.priority || "normal"} />
+        ),
+        sortable: false,
+      },
+      {
+        field: "source",
+        headerName: "Source",
+        width: 140,
+        renderCell: (params) => params.row?.source || "—",
+        sortable: false,
+      },
+      {
+        field: "createdAt",
+        headerName: "Created",
+        width: 190,
+        valueFormatter: (_value, params) =>
+          params.row?.createdAt
+            ? new Date(params.row.createdAt).toLocaleString()
+            : "",
+      },
+      {
+        field: "updatedAt",
+        headerName: "Updated",
+        width: 190,
+        valueFormatter: (_value, params) =>
+          params.row?.updatedAt
+            ? new Date(params.row.updatedAt).toLocaleString()
+            : "",
+      },
+    ],
+    []
+  );
+
+  async function loadCustomer() {
     setErr("");
     setLoading(true);
     try {
       const c = await apiGetCustomer(id);
       setCustomer(c);
-
-      const h = await apiCustomerOrders(id); // placeholder until Orders module
-      setOrders(h?.items || []);
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {
@@ -53,10 +109,31 @@ export default function CustomerDetailPage() {
     }
   }
 
+  async function loadOrders() {
+    setErr("");
+    setOrdersLoading(true);
+    try {
+      const h = await apiCustomerOrders(id);
+      setOrders(h?.items || []);
+    } catch (e) {
+      setErr(`${e.code}: ${e.message}`);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }
+
   useEffect(() => {
-    load();
+    loadCustomer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Load orders when tab becomes Order History
+  useEffect(() => {
+    if (tab === 4) {
+      loadOrders();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   if (err) {
     return (
@@ -220,16 +297,44 @@ export default function CustomerDetailPage() {
 
             {tab === 4 && (
               <Box sx={{ display: "grid", gap: 1 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                  Order History
-                </Typography>
-                <Alert severity="info">
-                  Orders module not connected yet. This tab will populate in
-                  Phase 3.
-                </Alert>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 1,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                    Order History
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={loadOrders}
+                    disabled={ordersLoading}
+                  >
+                    Refresh
+                  </Button>
+                </Box>
+
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  Current items: {orders.length}
+                  Total: {orders.length}
                 </Typography>
+
+                <Box sx={{ height: 520, width: "100%" }}>
+                  <DataGrid
+                    rows={orders}
+                    columns={orderColumns}
+                    getRowId={(r) => r.id}
+                    loading={ordersLoading}
+                    disableRowSelectionOnClick
+                    onRowClick={(params) =>
+                      navigate(`/orders/${params.row.id}`)
+                    }
+                  />
+                </Box>
               </Box>
             )}
           </Box>

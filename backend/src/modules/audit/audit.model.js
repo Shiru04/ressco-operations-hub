@@ -2,19 +2,25 @@ const mongoose = require("mongoose");
 
 const AuditEventSchema = new mongoose.Schema(
   {
-    entityType: { type: String, required: true },
-    entityId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    action: { type: String, required: true },
+    entityType: { type: String, required: true, trim: true, index: true },
+
+    // IMPORTANT: entityId must support BOTH ObjectId (orders/users) and UUID (pieces)
+    entityId: { type: String, required: true, trim: true, index: true },
+
+    action: { type: String, required: true, trim: true },
+
     changes: { type: Object, default: {} },
-    actorUserId: { type: mongoose.Schema.Types.ObjectId, default: null },
-    actorRole: { type: String, default: null },
-    at: { type: Date, default: () => new Date() },
-    meta: {
-      ip: { type: String, default: null },
-      userAgent: { type: String, default: null },
+
+    actorUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
+    actorRole: { type: String, default: null, trim: true },
+
+    at: { type: Date, default: () => new Date(), index: true },
   },
-  { timestamps: true }
+  { timestamps: false }
 );
 
 AuditEventSchema.index({ entityType: 1, entityId: 1, at: -1 });
