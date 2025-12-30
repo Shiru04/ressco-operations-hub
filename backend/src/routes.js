@@ -6,6 +6,7 @@ const takeoffRoutes = require("./modules/takeoff/takeoff.routes");
 const notificationsRoutes = require("./modules/notifications/notifications.routes");
 const productionRoutes = require("./modules/production/production.routes");
 const auditRoutes = require("./modules/audit/audit.routes");
+const analyticsRoutes = require("./modules/analytics/analytics.routes");
 
 function registerRoutes(app) {
   app.use("/api/auth", authRoutes);
@@ -16,6 +17,7 @@ function registerRoutes(app) {
   app.use("/api/notifications", notificationsRoutes);
   app.use("/api/production", productionRoutes);
   app.use("/api/audit", auditRoutes);
+  app.use("/api/analytics", analyticsRoutes);
 
   app.get("/api", (_req, res) => {
     res.json({ ok: true, message: "Ressco Operations Hub API" });

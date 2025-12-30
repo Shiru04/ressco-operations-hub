@@ -24,12 +24,6 @@ router.post("/", postUser);
 router.patch("/:id", patchUser);
 router.patch("/:id/disable", patchDisableUser);
 router.patch("/:id/2fa/enforce", patchEnforce2fa);
-router.patch(
-  "/:id/production-queues",
-  authRequired,
-  require2FAForAdmin,
-  requireRoles([ROLES.ADMIN]),
-  patchUserProductionQueues
-);
+router.patch("/:id/production-queues", patchUserProductionQueues);
 
 module.exports = router;

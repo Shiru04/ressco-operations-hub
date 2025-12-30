@@ -1,5 +1,50 @@
+const mongoose = require("mongoose");
 const { User } = require("./users.model");
 const { hashPassword } = require("../../shared/utils/password");
+
+function assertValidObjectId(id) {
+  if (!mongoose.isValidObjectId(id)) {
+    const err = new Error("Invalid id");
+    err.code = "INVALID_ID";
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function normalizeQueues(queues) {
+  const arr = Array.isArray(queues) ? queues : [];
+
+  const normalized = arr.map((q, idx) => ({
+    key: String(q.key || "").trim(),
+    order: Number.isFinite(q.order) ? Number(q.order) : idx + 1,
+    isActive: q.isActive === undefined ? true : !!q.isActive,
+  }));
+
+  // validate required
+  for (const q of normalized) {
+    if (!q.key) {
+      const err = new Error("Queue key is required");
+      err.code = "VALIDATION_ERROR";
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  // unique keys
+  const keys = normalized.map((q) => q.key);
+  const uniq = new Set(keys);
+  if (uniq.size !== keys.length) {
+    const err = new Error("Duplicate queue keys are not allowed");
+    err.code = "DUPLICATE_QUEUE_KEYS";
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // stable order
+  normalized.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  return normalized;
+}
 
 async function listUsers({ role, active } = {}) {
   const filter = {};
@@ -37,6 +82,8 @@ async function createUser({ name, email, role, password }) {
     passwordHash,
     isActive: true,
     twoFA: { enabled: false, secret: null, enforcedAt: null },
+    productionQueues: [],
+    lastAutoAssignedAt: null,
   });
 
   return {
@@ -46,10 +93,13 @@ async function createUser({ name, email, role, password }) {
     role: user.role,
     isActive: user.isActive,
     twoFAEnabled: !!user.twoFA?.enabled,
+    productionQueues: user.productionQueues || [],
   };
 }
 
 async function updateUser(userId, patch) {
+  assertValidObjectId(userId);
+
   const update = {};
 
   if (patch.name !== undefined) update.name = patch.name.trim();
@@ -58,7 +108,9 @@ async function updateUser(userId, patch) {
 
   const user = await User.findByIdAndUpdate(userId, update, {
     new: true,
-  }).select("_id name email role isActive twoFA.enabled updatedAt");
+  }).select(
+    "_id name email role isActive twoFA.enabled updatedAt productionQueues"
+  );
 
   if (!user) {
     const err = new Error("User not found");
@@ -74,6 +126,7 @@ async function updateUser(userId, patch) {
     role: user.role,
     isActive: user.isActive,
     twoFAEnabled: !!user.twoFA?.enabled,
+    productionQueues: user.productionQueues || [],
     updatedAt: user.updatedAt,
   };
 }
@@ -83,6 +136,8 @@ async function disableUser(userId) {
 }
 
 async function set2faEnforcement(userId, enabled) {
+  assertValidObjectId(userId);
+
   const user = await User.findById(userId);
 
   if (!user) {
@@ -95,13 +150,12 @@ async function set2faEnforcement(userId, enabled) {
   user.twoFA = user.twoFA || {};
   user.twoFA.enabled = !!enabled;
 
-  // If we disable, remove secret to prevent accidental reuse
   if (!enabled) {
     user.twoFA.secret = null;
+    user.twoFA.pendingSecret = null;
     user.twoFA.enforcedAt = null;
   } else {
     user.twoFA.enforcedAt = new Date();
-    // secret will be set later in 2FA setup flow (next phase)
   }
 
   await user.save();
@@ -115,10 +169,41 @@ async function set2faEnforcement(userId, enabled) {
   };
 }
 
+async function setUserProductionQueues(userId, productionQueues) {
+  assertValidObjectId(userId);
+
+  const normalized = normalizeQueues(productionQueues);
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    {
+      $set: {
+        productionQueues: normalized,
+        // We are moving away from auto-assignment; clearing this avoids confusing stale data
+        lastAutoAssignedAt: null,
+      },
+    },
+    { new: true }
+  ).select("_id productionQueues");
+
+  if (!user) {
+    const err = new Error("User not found");
+    err.code = "USER_NOT_FOUND";
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return {
+    id: user._id,
+    productionQueues: user.productionQueues || [],
+  };
+}
+
 module.exports = {
   listUsers,
   createUser,
   updateUser,
   disableUser,
   set2faEnforcement,
+  setUserProductionQueues,
 };

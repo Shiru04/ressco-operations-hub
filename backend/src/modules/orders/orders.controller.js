@@ -13,6 +13,7 @@ const {
   updateOrder,
   patchStatus,
   approveOrder,
+  getOrderCostingBreakdown,
 } = require("./orders.service");
 
 function actorFromReq(req) {
@@ -111,6 +112,15 @@ async function postUnapprove(req, res, next) {
   }
 }
 
+async function getOrderCosting(req, res, next) {
+  try {
+    const data = await getOrderCostingBreakdown(req.params.id);
+    return ok(res, data);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   getOrders,
   postOrder,
@@ -120,4 +130,5 @@ module.exports = {
   patchOrderStatus,
   postApprove,
   postUnapprove,
+  getOrderCosting,
 };

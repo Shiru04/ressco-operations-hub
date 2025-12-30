@@ -132,39 +132,67 @@ function pad2(n) {
   return x < 10 ? `0${x}` : String(x);
 }
 
+// Add near the top of orders.model.js (above TakeoffItemSchema)
+const WorkLogSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    startedAt: { type: Date, default: null },
+    endedAt: { type: Date, default: null },
+    durationSec: { type: Number, default: 0, min: 0 },
+    notes: { type: String, default: "", trim: true },
+  },
+  { _id: true }
+);
+
+const TimerSchema = new mongoose.Schema(
+  {
+    state: {
+      type: String,
+      enum: ["idle", "running", "paused", "stopped"],
+      default: "idle",
+    },
+    startedAt: { type: Date, default: null },
+    pausedAt: { type: Date, default: null },
+    accumulatedSec: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
+// Replace ONLY your current TakeoffItemSchema with this:
 const TakeoffItemSchema = new mongoose.Schema(
   {
-    // === Stable identity + human reference ===
-    // pieceUid: immutable stable identifier used by frontend/APIs/audit
-    pieceUid: { type: String, default: () => uuid(), trim: true },
-
-    // pieceRef: human-friendly identifier per order, per typeCode (e.g., F-1-01, D1-02)
-    pieceRef: { type: String, default: null, trim: true },
-
-    // optional: keep any legacy/client-generated id if you want (non-authoritative)
-    clientItemId: { type: String, default: null, trim: true },
-
     lineNo: { type: Number, default: 0 }, // display ordering
     typeCode: { type: String, required: true, trim: true }, // e.g., "F-1"
     qty: { type: Number, default: 1, min: 0 },
     ga: { type: String, default: null, trim: true }, // gauge
     material: { type: String, default: null, trim: true }, // optional
-    measurements: { type: Object, default: {} }, // keys: W1,D1,...,M (string/number safe)
+    measurements: { type: Object, default: {} },
     remarks: { type: String, default: "", trim: true },
 
-    // Queue/status (your existing behavior: pieceStatus is queue key).
+    // Queue + status invariant (DO NOT change behavior elsewhere)
     pieceStatus: { type: String, default: "queued", trim: true },
-
-    // Needed because service writes assignedQueueKey; keep it mirrored with pieceStatus via service.
     assignedQueueKey: { type: String, default: "queued", trim: true },
 
-    // Keep existing string types (do NOT convert to ObjectId to avoid breaking frontend).
-    assignedTo: { type: String, default: null, trim: true },
-    assignedAt: { type: String, default: null, trim: true },
+    // Assignment
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    assignedAt: { type: Date, default: null },
+    assignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
 
-    // Timer + work history persistence
-    timer: { type: PieceTimerSchema, default: () => ({}) },
-    workLog: { type: [PieceWorkLogEntrySchema], default: [] },
+    // Timer + labor tracking
+    timer: { type: TimerSchema, default: () => ({}) },
+    workLog: { type: [WorkLogSchema], default: [] },
   },
   { _id: true }
 );

@@ -25,6 +25,8 @@ import { useAuth } from "../../app/providers/AuthProvider";
 import AssignmentIcon from "@mui/icons-material/Assignment";
 import NotificationsBell from "./NotificationsBell";
 import SettingsIcon from "@mui/icons-material/Settings";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 
 const FULL_DRAWER = 240;
 const MINI_DRAWER = 72;
@@ -50,11 +52,49 @@ export default function AppShell() {
       { label: "Orders", icon: <AssignmentIcon />, path: "/orders" },
     ];
 
+    if (user?.role === "supervisor") {
+      items.push({
+        label: "Dashboard",
+        icon: <DashboardIcon />,
+        path: "/dashboard/production",
+      });
+      items.push({
+        label: "Users Dashboard",
+        icon: <DashboardIcon />,
+        path: "/dashboard/users",
+      });
+      items.push({
+        label: "Job Costing",
+        icon: <DashboardIcon />,
+        path: "/dashboard/job-costing",
+      });
+    }
+
     if (user?.role === "admin") {
       items.push({
         label: "Production Queues",
         icon: <SettingsIcon />,
         path: "/admin/production-queues",
+      });
+      items.push({
+        label: "Users",
+        icon: <AdminPanelSettingsIcon />,
+        path: "/admin/users",
+      });
+      items.push({
+        label: "Dashboard",
+        icon: <DashboardIcon />,
+        path: "/dashboard/production",
+      });
+      items.push({
+        label: "Users Dashboard",
+        icon: <DashboardIcon />,
+        path: "/dashboard/users",
+      });
+      items.push({
+        label: "Job Costing",
+        icon: <DashboardIcon />,
+        path: "/dashboard/job-costing",
       });
     }
 

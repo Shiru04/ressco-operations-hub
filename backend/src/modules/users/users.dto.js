@@ -18,4 +18,21 @@ const enforce2faSchema = z.object({
   enabled: z.boolean(),
 });
 
-module.exports = { createUserSchema, updateUserSchema, enforce2faSchema };
+const productionQueuesSchema = z.object({
+  productionQueues: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(64),
+        order: z.number().int().min(0).optional(),
+        isActive: z.boolean().optional(),
+      })
+    )
+    .default([]),
+});
+
+module.exports = {
+  createUserSchema,
+  updateUserSchema,
+  enforce2faSchema,
+  productionQueuesSchema,
+};

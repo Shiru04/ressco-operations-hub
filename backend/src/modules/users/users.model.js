@@ -11,13 +11,22 @@ const TwoFASchema = new mongoose.Schema(
   { _id: false }
 );
 
+const ProductionQueueSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true, trim: true },
+    order: { type: Number, default: 9999, min: 0 },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const UserSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     email: {
       type: String,
       required: true,
-      unique: true, // keep unique here
+      unique: true,
       lowercase: true,
       trim: true,
     },
@@ -30,12 +39,13 @@ const UserSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
 
     twoFA: { type: TwoFASchema, default: () => ({}) },
+
+    // Production membership (manual assignment; auto-assign deprecated but field kept harmlessly)
+    productionQueues: { type: [ProductionQueueSchema], default: [] },
+    lastAutoAssignedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
-
-// Remove this because unique:true already creates the index
-// UserSchema.index({ email: 1 }, { unique: true });
 
 const User = mongoose.model("User", UserSchema);
 

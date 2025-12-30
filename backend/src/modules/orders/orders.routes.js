@@ -17,6 +17,7 @@ const {
   patchOrderStatus,
   postApprove,
   postUnapprove,
+  getOrderCosting,
 } = require("./orders.controller");
 const { patchTakeoffItemStatus } = require("./orders.pieces.controller");
 const {
@@ -55,6 +56,8 @@ router.get(
   require2FAForAdmin,
   getOrder
 );
+//Costing route
+router.get("/:id/costing", authRequired, require2FAForAdmin, getOrderCosting);
 
 // Takeoff PDF (auth required)
 router.get(

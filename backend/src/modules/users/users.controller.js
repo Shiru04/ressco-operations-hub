@@ -3,6 +3,7 @@ const {
   createUserSchema,
   updateUserSchema,
   enforce2faSchema,
+  productionQueuesSchema,
 } = require("./users.dto");
 const {
   listUsers,
@@ -10,17 +11,16 @@ const {
   updateUser,
   disableUser,
   set2faEnforcement,
+  setUserProductionQueues,
 } = require("./users.service");
 
 async function getUsers(req, res, next) {
   try {
-    // Prevent caching/304
     res.set("Cache-Control", "no-store, max-age=0");
     res.set("Pragma", "no-cache");
 
     const role = req.query?.role ? String(req.query.role) : undefined;
 
-    // active=true|false (optional)
     const activeRaw = req.query?.active;
     const active =
       activeRaw === undefined
@@ -40,7 +40,6 @@ async function postUser(req, res, next) {
     const user = await createUser(body);
     return ok(res, user, 201);
   } catch (err) {
-    // Duplicate email handling
     if (err && err.code === 11000) {
       err.statusCode = 409;
       err.code = "EMAIL_IN_USE";
@@ -78,18 +77,15 @@ async function patchEnforce2fa(req, res, next) {
     return next(err);
   }
 }
+
 async function patchUserProductionQueues(req, res, next) {
   try {
     const userId = req.params.id;
-    const queues = req.body?.productionQueues || [];
-    const doc = await User.findByIdAndUpdate(
-      userId,
-      { $set: { productionQueues: queues, lastAutoAssignedAt: null } },
-      { new: true }
-    );
-    return ok(res, { id: doc._id, productionQueues: doc.productionQueues });
-  } catch (e) {
-    return next(e);
+    const body = productionQueuesSchema.parse(req.body);
+    const result = await setUserProductionQueues(userId, body.productionQueues);
+    return ok(res, result);
+  } catch (err) {
+    return next(err);
   }
 }
 

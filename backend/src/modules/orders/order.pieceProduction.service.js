@@ -383,9 +383,26 @@ async function timerStop({ orderId, itemId, actor, notes = "" }) {
       : new Date();
 
   if (sessionDuration > 0 || (notes && String(notes).trim())) {
+    // ✅ Prefer real timer.startedAt (authoritative when running)
+    let startedAtForLog = item.timer.startedAt
+      ? new Date(item.timer.startedAt)
+      : null;
+
+    // fallback: session bookkeeping (if present)
+    if (!startedAtForLog && item.timer.sessionStartedAt) {
+      startedAtForLog = new Date(item.timer.sessionStartedAt);
+    }
+
+    // last resort: derive from endedAt - duration (never allow null)
+    if (!startedAtForLog && sessionDuration > 0) {
+      startedAtForLog = new Date(
+        new Date(endedAt).getTime() - sessionDuration * 1000
+      );
+    }
+
     item.workLog.push({
       userId: item.assignedTo || null,
-      startedAt: sessionStart,
+      startedAt: startedAtForLog,
       endedAt,
       durationSec: sessionDuration,
       notes: notes || "",

@@ -438,6 +438,89 @@ function mapOrder(o) {
   };
 }
 
+async function getOrderCostingBreakdown(orderId) {
+  const doc = await Order.findById(orderId).lean();
+  if (!doc) {
+    const err = new Error("Order not found");
+    err.code = "ORDER_NOT_FOUND";
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const takeoffItems = Array.isArray(doc.takeoff?.items)
+    ? doc.takeoff.items
+    : [];
+
+  const items = takeoffItems.map((it) => {
+    const wl = Array.isArray(it.workLog) ? it.workLog : [];
+    const laborSec = wl.reduce(
+      (sum, w) => sum + (Number(w.durationSec) || 0),
+      0
+    );
+
+    return {
+      itemId: String(it._id),
+      typeCode: it.typeCode,
+      qty: it.qty || 1,
+      pieceStatus: it.pieceStatus || "queued",
+      assignedTo: it.assignedTo || null,
+      laborSec,
+      laborHours: Math.round((laborSec / 3600) * 100) / 100,
+      sessions: wl.length,
+    };
+  });
+
+  const totalLaborSec = items.reduce((sum, i) => sum + (i.laborSec || 0), 0);
+
+  // Rollups computed from same safe array
+  const byUser = new Map();
+  for (const it of takeoffItems) {
+    const wl = Array.isArray(it.workLog) ? it.workLog : [];
+    for (const w of wl) {
+      const uid = w.userId ? String(w.userId) : "unassigned";
+      const curr = byUser.get(uid) || { userId: uid, laborSec: 0, sessions: 0 };
+      curr.laborSec += Number(w.durationSec) || 0;
+      curr.sessions += 1;
+      byUser.set(uid, curr);
+    }
+  }
+
+  const byQueue = new Map();
+  for (const it of takeoffItems) {
+    const q = it.pieceStatus || "queued";
+    const wl = Array.isArray(it.workLog) ? it.workLog : [];
+    const work = wl.reduce((sum, w) => sum + (Number(w.durationSec) || 0), 0);
+    const curr = byQueue.get(q) || { queueKey: q, laborSec: 0, items: 0 };
+    curr.laborSec += work;
+    curr.items += 1;
+    byQueue.set(q, curr);
+  }
+
+  return {
+    orderId: String(doc._id),
+    orderNumber: doc.orderNumber,
+    status: doc.status,
+    totals: {
+      laborHours: Math.round((totalLaborSec / 3600) * 100) / 100,
+      laborSec: totalLaborSec,
+      items: items.length,
+    },
+    items,
+    byUser: Array.from(byUser.values()).map((r) => ({
+      userId: r.userId,
+      laborHours: Math.round((r.laborSec / 3600) * 100) / 100,
+      laborSec: r.laborSec,
+      sessions: r.sessions,
+    })),
+    byQueue: Array.from(byQueue.values()).map((r) => ({
+      queueKey: r.queueKey,
+      laborHours: Math.round((r.laborSec / 3600) * 100) / 100,
+      laborSec: r.laborSec,
+      items: r.items,
+    })),
+  };
+}
+
 module.exports = {
   createOrder,
   intakeOrder,
@@ -447,4 +530,5 @@ module.exports = {
   patchStatus,
   approveOrder,
   unapproveOrder,
+  getOrderCostingBreakdown,
 };
