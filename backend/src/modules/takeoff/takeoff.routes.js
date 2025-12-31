@@ -12,7 +12,13 @@ router.use(authRequired);
 // Operational roles can access catalog
 router.get(
   "/catalog",
-  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  requireRoles([
+    ROLES.ADMIN,
+    ROLES.SALES,
+    ROLES.SUPERVISOR,
+    ROLES.PRODUCTION,
+    ROLES.CUSTOMER,
+  ]),
   require2FAForAdmin,
   getCatalog
 );

@@ -8,6 +8,9 @@ const { ORDER_STATUSES } = require("../../shared/constants/orderStatuses");
 const { patchTakeoffSchema } = require("../orders/orders.takeoff.dto");
 const { patchOrderTakeoff } = require("../orders/orders.takeoff.service");
 
+// IMPORTANT: use existing order creation pipeline (orderNumber, audit, etc.)
+const { createOrder } = require("../orders/orders.service");
+
 /**
  * Load full portal user doc (customerIds are authoritative here, not JWT).
  */
@@ -84,11 +87,62 @@ async function listCustomersForPortal(auth) {
 async function listOrdersForPortal(auth) {
   const user = await loadPortalUser(auth);
 
-  return Order.find({
+  const rows = await Order.find({
     customerId: { $in: user.customerIds || [] },
   })
     .sort({ createdAt: -1 })
-    .select("_id orderNumber status createdAt updatedAt");
+    .select("_id orderNumber status createdAt updatedAt customerId");
+
+  return rows.map((o) => ({
+    id: String(o._id),
+    orderNumber: o.orderNumber,
+    status: o.status,
+    customerId: String(o.customerId),
+    createdAt: o.createdAt,
+    updatedAt: o.updatedAt,
+  }));
+}
+
+/**
+ * ✅ Draft recovery: return latest "received" order created by this portal user
+ * for a given customerId (or null if none).
+ *
+ * "Draft" definition (customer-only):
+ * - createdBy = this portal user
+ * - customerId = selected customerId (must be linked)
+ * - status = RECEIVED (not yet approved)
+ */
+async function getLastDraftForPortal(auth, query) {
+  const user = await loadPortalUser(auth);
+  const { customerId } = query || {};
+
+  if (!mongoose.isValidObjectId(customerId)) {
+    const err = new Error("Invalid customerId");
+    err.statusCode = 400;
+    err.code = "VALIDATION_ERROR";
+    throw err;
+  }
+
+  assertCustomerAccess(user, customerId);
+
+  const draft = await Order.findOne({
+    customerId,
+    createdBy: user._id,
+    status: ORDER_STATUSES.RECEIVED,
+  })
+    .sort({ createdAt: -1 })
+    .select("_id orderNumber status createdAt updatedAt takeoff");
+
+  if (!draft) return null;
+
+  return {
+    id: String(draft._id),
+    orderNumber: draft.orderNumber,
+    status: draft.status,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+    takeoff: draft.takeoff || { header: {}, items: [] },
+  };
 }
 
 async function getOrderForPortal(auth, orderId) {
@@ -117,7 +171,7 @@ async function getOrderForPortal(auth, orderId) {
  * Creates a request order in RECEIVED status.
  * IMPORTANT: do not alter approval logic; ops will approve using existing endpoints/flow.
  *
- * Note: Order model source enum in ZIP is ["pos","website","internal"], so we use "website"
+ * Note: Order model source enum is ["pos","website","internal"], so we use "website"
  * to avoid enum churn and keep changes minimal/compatible.
  */
 async function createOrderRequest(auth, body, req) {
@@ -133,7 +187,9 @@ async function createOrderRequest(auth, body, req) {
 
   assertCustomerAccess(user, customerId);
 
-  const customer = await Customer.findById(customerId);
+  const customer = await Customer.findById(customerId).select(
+    "_id name email phone"
+  );
   if (!customer) {
     const err = new Error("Customer not found");
     err.statusCode = 404;
@@ -141,24 +197,29 @@ async function createOrderRequest(auth, body, req) {
     throw err;
   }
 
-  const order = await Order.create({
-    source: "website",
-    customerId,
-    contactSnapshot: {
-      name: customer.name || null,
-      email: customer.email || null,
-      phone: customer.phone || null,
+  // Use canonical order creation to ensure orderNumber and audit are correct
+  const created = await createOrder(
+    {
+      source: "website",
+      customerId,
+      contactSnapshot: {
+        name: customer.name || null,
+        email: customer.email || null,
+        phone: customer.phone || null,
+      },
+      // leave defaults for priority/sla/estimate/items/notes
+      // takeoff defaults are defined in the Order model
     },
-    status: ORDER_STATUSES.RECEIVED,
-    takeoff: { header: {}, items: [] },
-    createdBy: user._id,
-  });
+    actorFromAuth(auth),
+    req
+  );
 
+  // Ensure portal response contains takeoff for builder to start immediately
   return {
-    id: String(order._id),
-    orderNumber: order.orderNumber,
-    status: order.status,
-    takeoff: order.takeoff || { header: {}, items: [] },
+    id: String(created.id),
+    orderNumber: created.orderNumber,
+    status: created.status || ORDER_STATUSES.RECEIVED,
+    takeoff: created.takeoff || { header: {}, items: [] },
   };
 }
 
@@ -208,6 +269,7 @@ async function patchOrderTakeoffForPortal(auth, orderId, body, req) {
 module.exports = {
   listCustomersForPortal,
   listOrdersForPortal,
+  getLastDraftForPortal,
   getOrderForPortal,
   createOrderRequest,
   patchOrderTakeoff: patchOrderTakeoffForPortal,

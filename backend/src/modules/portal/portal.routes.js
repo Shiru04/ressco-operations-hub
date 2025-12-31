@@ -16,6 +16,10 @@ router.get("/customers", ctrl.listCustomers);
 
 // Orders for linked customers
 router.get("/orders", ctrl.listOrders);
+
+// ✅ Draft recovery (must be before /orders/:id)
+router.get("/orders/last-draft", ctrl.getLastDraft);
+
 router.get("/orders/:id", ctrl.getOrder);
 
 // Create initial request order (status: received)

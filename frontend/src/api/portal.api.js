@@ -10,6 +10,18 @@ export async function apiPortalOrders() {
   return data.data;
 }
 
+export async function apiPortalGetOrder(orderId) {
+  const { data } = await http.get(`/api/portal/orders/${orderId}`);
+  return data.data;
+}
+
+export async function apiPortalGetLastDraft(customerId) {
+  const { data } = await http.get("/api/portal/orders/last-draft", {
+    params: { customerId },
+  });
+  return data.data; // null OR { id, orderNumber, takeoff, ... }
+}
+
 /**
  * IMPORTANT:
  * PortalTakeoffRequestPage.jsx expects this named export.

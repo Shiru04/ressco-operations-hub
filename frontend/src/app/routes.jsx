@@ -15,10 +15,11 @@ import ProductionDashboardPage from "../pages/dashboard/ProductionDashboardPage"
 import UsersDashboardPage from "../pages/dashboard/UsersDashboardPage";
 import JobCostingPage from "../pages/dashboard/JobCostingPage";
 
-// NEW
+// Portal
 import PortalShell from "../components/layout/PortalShell";
 import PortalOrdersPage from "../pages/portal/PortalOrdersPage";
 import PortalTakeoffRequestPage from "../pages/portal/PortalTakeoffRequestPage";
+import PortalOrderDetailPage from "../pages/portal/PortalOrderDetailPage";
 
 function PrivateRoute({ children }) {
   const { isAuthed, booting } = useAuth();
@@ -51,6 +52,7 @@ export default function AppRoutes() {
       >
         <Route index element={<PortalOrdersPage />} />
         <Route path="new" element={<PortalTakeoffRequestPage />} />
+        <Route path="orders/:id" element={<PortalOrderDetailPage />} />
       </Route>
 
       {/* Ops app */}

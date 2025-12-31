@@ -18,6 +18,15 @@ async function listOrders(req, res, next) {
   }
 }
 
+async function getLastDraft(req, res, next) {
+  try {
+    const data = await service.getLastDraftForPortal(req.auth, req.query);
+    return res.json({ ok: true, data });
+  } catch (e) {
+    return next(e);
+  }
+}
+
 async function getOrder(req, res, next) {
   try {
     const data = await service.getOrderForPortal(req.auth, req.params.id);
@@ -53,6 +62,7 @@ async function patchOrderTakeoff(req, res, next) {
 module.exports = {
   listCustomers,
   listOrders,
+  getLastDraft,
   getOrder,
   createOrderRequest,
   patchOrderTakeoff,
