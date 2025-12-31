@@ -51,6 +51,11 @@ export default function LoginPage() {
     return false;
   }, [step, email, password, tempToken, code]);
 
+  function postLoginRedirect(me) {
+    if (me?.role === "customer") navigate("/portal", { replace: true });
+    else navigate("/", { replace: true });
+  }
+
   async function handleLogin() {
     setErr("");
     setLoading(true);
@@ -74,7 +79,7 @@ export default function LoginPage() {
       localStorage.setItem("auth_token", result.token);
       const me = await apiMe();
       setSession(result.token, me);
-      navigate("/", { replace: true });
+      postLoginRedirect(me);
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {
@@ -90,7 +95,7 @@ export default function LoginPage() {
       localStorage.setItem("auth_token", result.token);
       const me = await apiMe();
       setSession(result.token, me);
-      navigate("/", { replace: true });
+      postLoginRedirect(me);
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {
@@ -106,7 +111,7 @@ export default function LoginPage() {
       localStorage.setItem("auth_token", result.token);
       const me = await apiMe();
       setSession(result.token, me);
-      navigate("/", { replace: true });
+      postLoginRedirect(me);
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {

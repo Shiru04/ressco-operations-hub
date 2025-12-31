@@ -17,29 +17,6 @@ import {
   apiPortalPatchOrderTakeoff,
 } from "../../api/portal.api";
 
-// Normalize common API response shapes we’ve seen across the app
-function unwrapData(x) {
-  if (!x) return x;
-  // axios wrapper patterns
-  if (x.data && typeof x.data === "object") return x.data;
-  // backend ok wrapper patterns
-  if (x.ok === true && x.data !== undefined) return x.data;
-  return x;
-}
-
-function asArrayCustomers(raw) {
-  const v = unwrapData(raw);
-  if (Array.isArray(v)) return v;
-  if (v && Array.isArray(v.items)) return v.items;
-  // sometimes nested again
-  if (v && v.data && Array.isArray(v.data.items)) return v.data.items;
-  return [];
-}
-
-function normalizeId(obj) {
-  return obj?.id || obj?._id || "";
-}
-
 export default function PortalTakeoffRequestPage() {
   const navigate = useNavigate();
 
@@ -58,33 +35,29 @@ export default function PortalTakeoffRequestPage() {
 
   useEffect(() => {
     let mounted = true;
-
     (async () => {
       setLoading(true);
       setErr("");
       try {
-        const raw = await apiPortalCustomers();
-        const rows = asArrayCustomers(raw);
-
+        const rows = await apiPortalCustomers();
         if (!mounted) return;
 
-        setCustomers(rows);
+        setCustomers(rows || []);
 
-        if (rows.length >= 1) {
-          setCustomerId(normalizeId(rows[0]));
+        if ((rows || []).length === 1) {
+          setCustomerId(rows[0].id);
+        } else if ((rows || []).length > 1) {
+          setCustomerId(rows[0].id);
         } else {
           setCustomerId("");
         }
       } catch (e) {
         if (!mounted) return;
-        setErr(
-          `${e.code || "ERROR"}: ${e.message || "Failed to load customers"}`
-        );
+        setErr(`${e.code}: ${e.message}`);
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-
     return () => {
       mounted = false;
     };
@@ -100,31 +73,13 @@ export default function PortalTakeoffRequestPage() {
   async function startRequest() {
     setErr("");
     setLoading(true);
-
     try {
-      const raw = await apiPortalCreateOrderRequest({ customerId });
-
-      // handle {ok:true,data:{...}} or direct payload
-      const created = unwrapData(raw);
-
-      const id = normalizeId(created);
-      const num = created?.orderNumber || "";
-      const takeoff = created?.takeoff || { header: {}, items: [] };
-
-      if (!id) {
-        // This is the current failure mode you’re seeing: request succeeds but UI can’t advance.
-        throw {
-          code: "PORTAL_CREATE_RESPONSE_INVALID",
-          message:
-            "Order request was created but response did not include an id. Check portal.api.js return shape and backend response.",
-        };
-      }
-
-      setOrderId(id);
-      setOrderNumber(num);
-      setInitialTakeoff(takeoff);
+      const created = await apiPortalCreateOrderRequest({ customerId });
+      setOrderId(created.id);
+      setOrderNumber(created.orderNumber);
+      setInitialTakeoff(created.takeoff || { header: {}, items: [] });
     } catch (e) {
-      setErr(`${e.code || "ERROR"}: ${e.message || "Failed to start request"}`);
+      setErr(`${e.code}: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -187,14 +142,11 @@ export default function PortalTakeoffRequestPage() {
                     onChange={(e) => setCustomerId(e.target.value)}
                     disabled={loading}
                   >
-                    {customers.map((c) => {
-                      const id = normalizeId(c);
-                      return (
-                        <MenuItem key={id} value={id}>
-                          {c.name || c.email || id}
-                        </MenuItem>
-                      );
-                    })}
+                    {customers.map((c) => (
+                      <MenuItem key={c.id} value={c.id}>
+                        {c.name || c.email || c.id}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </Box>
 
@@ -221,8 +173,8 @@ export default function PortalTakeoffRequestPage() {
         ) : (
           <Box sx={{ display: "grid", gap: 2 }}>
             <Alert severity="success">
-              Request created: <strong>{orderNumber || orderId}</strong>. Add
-              takeoff lines below.
+              Request created: <strong>{orderNumber}</strong>. Add takeoff lines
+              below.
             </Alert>
 
             <TakeoffBuilder

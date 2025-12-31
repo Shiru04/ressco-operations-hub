@@ -43,6 +43,12 @@ const UserSchema = new mongoose.Schema(
     // Production membership (manual assignment; auto-assign deprecated but field kept harmlessly)
     productionQueues: { type: [ProductionQueueSchema], default: [] },
     lastAutoAssignedAt: { type: Date, default: null },
+
+    // NEW: portal linkage for client users
+    customerIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Customer" }],
+      default: [],
+    },
   },
   { timestamps: true }
 );

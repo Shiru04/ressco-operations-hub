@@ -8,6 +8,9 @@ const productionRoutes = require("./modules/production/production.routes");
 const auditRoutes = require("./modules/audit/audit.routes");
 const analyticsRoutes = require("./modules/analytics/analytics.routes");
 
+// NEW
+const portalRoutes = require("./modules/portal/portal.routes");
+
 function registerRoutes(app) {
   app.use("/api/auth", authRoutes);
   app.use("/api/users", usersRoutes);
@@ -18,6 +21,9 @@ function registerRoutes(app) {
   app.use("/api/production", productionRoutes);
   app.use("/api/audit", auditRoutes);
   app.use("/api/analytics", analyticsRoutes);
+
+  // NEW
+  app.use("/api/portal", portalRoutes);
 
   app.get("/api", (_req, res) => {
     res.json({ ok: true, message: "Ressco Operations Hub API" });

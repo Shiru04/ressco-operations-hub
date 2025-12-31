@@ -46,6 +46,19 @@ function normalizeQueues(queues) {
   return normalized;
 }
 
+function normalizeCustomerIds(customerIds) {
+  const arr = Array.isArray(customerIds) ? customerIds : [];
+  for (const id of arr) {
+    if (!mongoose.isValidObjectId(id)) {
+      const err = new Error("Invalid customerId in customerIds");
+      err.code = "VALIDATION_ERROR";
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+  return Array.from(new Set(arr.map(String)));
+}
+
 async function listUsers({ role, active } = {}) {
   const filter = {};
 
@@ -54,7 +67,7 @@ async function listUsers({ role, active } = {}) {
 
   const users = await User.find(filter)
     .select(
-      "_id name email role isActive twoFA.enabled createdAt updatedAt productionQueues lastAutoAssignedAt"
+      "_id name email role isActive twoFA.enabled createdAt updatedAt productionQueues lastAutoAssignedAt customerIds"
     )
     .sort({ createdAt: -1 });
 
@@ -67,12 +80,13 @@ async function listUsers({ role, active } = {}) {
     twoFAEnabled: !!u.twoFA?.enabled,
     productionQueues: u.productionQueues || [],
     lastAutoAssignedAt: u.lastAutoAssignedAt || null,
+    customerIds: (u.customerIds || []).map(String),
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   }));
 }
 
-async function createUser({ name, email, role, password }) {
+async function createUser({ name, email, role, password, customerIds }) {
   const passwordHash = await hashPassword(password);
 
   const user = await User.create({
@@ -84,6 +98,9 @@ async function createUser({ name, email, role, password }) {
     twoFA: { enabled: false, secret: null, enforcedAt: null },
     productionQueues: [],
     lastAutoAssignedAt: null,
+
+    // NEW
+    customerIds: customerIds ? normalizeCustomerIds(customerIds) : [],
   });
 
   return {
@@ -94,6 +111,7 @@ async function createUser({ name, email, role, password }) {
     isActive: user.isActive,
     twoFAEnabled: !!user.twoFA?.enabled,
     productionQueues: user.productionQueues || [],
+    customerIds: (user.customerIds || []).map(String),
   };
 }
 
@@ -106,10 +124,15 @@ async function updateUser(userId, patch) {
   if (patch.role !== undefined) update.role = patch.role;
   if (patch.isActive !== undefined) update.isActive = patch.isActive;
 
+  // NEW
+  if (patch.customerIds !== undefined) {
+    update.customerIds = normalizeCustomerIds(patch.customerIds);
+  }
+
   const user = await User.findByIdAndUpdate(userId, update, {
     new: true,
   }).select(
-    "_id name email role isActive twoFA.enabled updatedAt productionQueues"
+    "_id name email role isActive twoFA.enabled updatedAt productionQueues customerIds"
   );
 
   if (!user) {
@@ -127,6 +150,7 @@ async function updateUser(userId, patch) {
     isActive: user.isActive,
     twoFAEnabled: !!user.twoFA?.enabled,
     productionQueues: user.productionQueues || [],
+    customerIds: (user.customerIds || []).map(String),
     updatedAt: user.updatedAt,
   };
 }
@@ -199,6 +223,28 @@ async function setUserProductionQueues(userId, productionQueues) {
   };
 }
 
+// NEW: admin-only password reset endpoint
+async function resetUserPassword(userId, password) {
+  assertValidObjectId(userId);
+
+  const user = await User.findById(userId).select("_id email");
+  if (!user) {
+    const err = new Error("User not found");
+    err.code = "USER_NOT_FOUND";
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const passwordHash = await hashPassword(password);
+  await User.findByIdAndUpdate(
+    userId,
+    { $set: { passwordHash } },
+    { new: false }
+  );
+
+  return { id: userId, email: user.email };
+}
+
 module.exports = {
   listUsers,
   createUser,
@@ -206,4 +252,5 @@ module.exports = {
   disableUser,
   set2faEnforcement,
   setUserProductionQueues,
+  resetUserPassword,
 };

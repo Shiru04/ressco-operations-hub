@@ -52,24 +52,16 @@ export default function AppShell() {
       { label: "Orders", icon: <AssignmentIcon />, path: "/orders" },
     ];
 
-    if (user?.role === "supervisor") {
+    // Unified Dashboard access: admin + supervisor + sales
+    if (["admin", "supervisor", "sales"].includes(user?.role)) {
       items.push({
         label: "Dashboard",
         icon: <DashboardIcon />,
-        path: "/dashboard/production",
-      });
-      items.push({
-        label: "Users Dashboard",
-        icon: <DashboardIcon />,
-        path: "/dashboard/users",
-      });
-      items.push({
-        label: "Job Costing",
-        icon: <DashboardIcon />,
-        path: "/dashboard/job-costing",
+        path: "/dashboard",
       });
     }
 
+    // Admin-only
     if (user?.role === "admin") {
       items.push({
         label: "Production Queues",
@@ -80,21 +72,6 @@ export default function AppShell() {
         label: "Users",
         icon: <AdminPanelSettingsIcon />,
         path: "/admin/users",
-      });
-      items.push({
-        label: "Dashboard",
-        icon: <DashboardIcon />,
-        path: "/dashboard/production",
-      });
-      items.push({
-        label: "Users Dashboard",
-        icon: <DashboardIcon />,
-        path: "/dashboard/users",
-      });
-      items.push({
-        label: "Job Costing",
-        icon: <DashboardIcon />,
-        path: "/dashboard/job-costing",
       });
     }
 
@@ -259,8 +236,8 @@ export default function AppShell() {
             }),
           },
         }}
-        open
       >
+        <Toolbar variant="dense" sx={{ minHeight: 48 }} />
         {drawerContent}
       </Drawer>
 
@@ -268,10 +245,9 @@ export default function AppShell() {
         variant="temporary"
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
-        ModalProps={{ keepMounted: true }}
         sx={{
           display: { xs: "block", md: "none" },
-          "& .MuiDrawer-paper": { width: FULL_DRAWER, boxSizing: "border-box" },
+          "& .MuiDrawer-paper": { width: FULL_DRAWER },
         }}
       >
         {drawerContent}
@@ -281,11 +257,10 @@ export default function AppShell() {
         component="main"
         sx={{
           flexGrow: 1,
-          minHeight: "100vh",
+          p: 2,
+          mt: "48px",
           ml: { md: `${drawerWidth}px` },
-          px: { xs: 1, sm: 2 },
-          pt: 7,
-          pb: 2,
+          width: { md: `calc(100% - ${drawerWidth}px)` },
         }}
       >
         <Outlet />

@@ -12,6 +12,7 @@ const {
   patchDisableUser,
   patchEnforce2fa,
   patchUserProductionQueues,
+  patchUserPassword,
 } = require("./users.controller");
 
 const router = express.Router();
@@ -25,5 +26,8 @@ router.patch("/:id", patchUser);
 router.patch("/:id/disable", patchDisableUser);
 router.patch("/:id/2fa/enforce", patchEnforce2fa);
 router.patch("/:id/production-queues", patchUserProductionQueues);
+
+// NEW: reset password (admin-only)
+router.patch("/:id/password", patchUserPassword);
 
 module.exports = router;

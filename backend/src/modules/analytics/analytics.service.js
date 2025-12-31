@@ -5,14 +5,23 @@ const { ORDER_STATUSES } = require("../../shared/constants/orderStatuses");
 /**
  * Query params:
  * - from, to: ISO date strings (optional)
- * - maxRangeDays enforced (default 180)
+ * - default range: last 30 days
+ * - max range: 180 days (hard cap)
  */
-function parseRange({ from, to, maxRangeDays = 180 } = {}) {
+function parseRange({ from, to } = {}) {
+  const MAX_RANGE_DAYS = 180;
+  const DEFAULT_RANGE_DAYS = 30;
+
   const now = new Date();
-  const end = to ? new Date(to) : now;
+
+  // End defaults to "now" and is clamped to now (prevents accidental future ranges).
+  const requestedEnd = to ? new Date(to) : now;
+  const end = requestedEnd > now ? now : requestedEnd;
+
+  // Start defaults to last DEFAULT_RANGE_DAYS.
   const start = from
     ? new Date(from)
-    : new Date(end.getTime() - 30 * 24 * 3600 * 1000);
+    : new Date(end.getTime() - DEFAULT_RANGE_DAYS * 24 * 3600 * 1000);
 
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     const err = new Error("Invalid date range");
@@ -28,8 +37,8 @@ function parseRange({ from, to, maxRangeDays = 180 } = {}) {
   }
 
   const rangeDays = (end.getTime() - start.getTime()) / (24 * 3600 * 1000);
-  if (rangeDays > maxRangeDays) {
-    const err = new Error(`Date range too large (max ${maxRangeDays} days)`);
+  if (rangeDays > MAX_RANGE_DAYS) {
+    const err = new Error(`Date range too large (max ${MAX_RANGE_DAYS} days)`);
     err.code = "RANGE_TOO_LARGE";
     err.statusCode = 400;
     throw err;
@@ -526,4 +535,5 @@ module.exports = {
   productionQueues,
   productionUsers,
   ordersAnalytics,
+  parseRange,
 };

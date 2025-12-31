@@ -1,18 +1,31 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Chip } from "@mui/material";
 import { apiGetTakeoffCatalog } from "../../../api/takeoff.api";
-import { apiPatchOrderTakeoff } from "../../../api/orders.api";
+import { apiPatchOrderTakeoff, apiGetTakeoffPdfBlob } from "../../../api/orders.api";
 import TakeoffHeaderForm from "./TakeoffHeaderForm";
 import TakeoffItemsTable from "./TakeoffItemsTable";
 import TakeoffTypePicker from "./TakeoffTypePicker";
 import TakeoffPieceDrawer from "./TakeoffPieceDrawer";
-import { apiGetTakeoffPdfBlob } from "../../../api/orders.api";
 
 function makeId() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-export default function TakeoffBuilder({ orderId, initialTakeoff, onSaved }) {
+/**
+ * Props:
+ * - orderId (required)
+ * - initialTakeoff (optional)
+ * - onSaved(takeoff) (optional)
+ * - saveAdapter(orderId, {header,items}) (optional) -> returns { takeoff } or takeoff
+ * - showPdf (optional, default true)
+ */
+export default function TakeoffBuilder({
+  orderId,
+  initialTakeoff,
+  onSaved,
+  saveAdapter,
+  showPdf = true,
+}) {
   const [catalog, setCatalog] = useState(null);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
 
@@ -80,37 +93,41 @@ export default function TakeoffBuilder({ orderId, initialTakeoff, onSaved }) {
     setSaving(true);
     setSaveState("saving");
     try {
-      const result = await apiPatchOrderTakeoff(orderId, {
+      const adapter =
+        saveAdapter ||
+        (async (id, payload) => apiPatchOrderTakeoff(id, payload));
+
+      const result = await adapter(orderId, {
         header: nextHeader,
         items: nextItems,
       });
+
+      const nextTakeoff = result?.takeoff ? result.takeoff : result;
+
       setSaveState("saved");
-      onSaved?.(result.takeoff);
-      return result.takeoff;
+      onSaved?.(nextTakeoff);
+      return nextTakeoff;
     } catch (e) {
       setSaveState("error");
       setErr(`${e.code}: ${e.message}`);
       throw e;
     } finally {
       setSaving(false);
-      // return to idle after a moment
       setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1200);
     }
   }
 
-  // Manual save (for header edits)
   async function saveHeaderOnly() {
     await saveTakeoff(header, normalizedItemsForSave);
   }
 
   async function addLine(line) {
-    // Optimistic local update
-    const nextItemsLocal = [...items, { ...line, id: makeId() }].map(
-      (x, i) => ({ ...x, lineNo: i + 1 })
-    );
+    const nextItemsLocal = [...items, { ...line, id: makeId() }].map((x, i) => ({
+      ...x,
+      lineNo: i + 1,
+    }));
     setItems(nextItemsLocal);
 
-    // Persist immediately (recommended by you)
     await saveTakeoff(
       header,
       nextItemsLocal.map((it) => ({
@@ -149,6 +166,7 @@ export default function TakeoffBuilder({ orderId, initialTakeoff, onSaved }) {
     setSelectedType(t);
     setDrawerOpen(true);
   }
+
   const hasLines = normalizedItemsForSave.length > 0;
 
   return (
@@ -171,31 +189,31 @@ export default function TakeoffBuilder({ orderId, initialTakeoff, onSaved }) {
       >
         {saveState === "saving" ? <Chip size="small" label="Saving…" /> : null}
         {saveState === "saved" ? <Chip size="small" label="Saved" /> : null}
-        {saveState === "error" ? (
-          <Chip size="small" label="Save failed" />
-        ) : null}
+        {saveState === "error" ? <Chip size="small" label="Save failed" /> : null}
 
         <Button variant="contained" onClick={saveHeaderOnly} disabled={saving}>
           {saving ? <CircularProgress size={18} /> : null}
           Save Header
         </Button>
 
-        <Button
-          variant="outlined"
-          disabled={saving || !hasLines}
-          onClick={async () => {
-            try {
-              const blob = await apiGetTakeoffPdfBlob(orderId);
-              const url = URL.createObjectURL(blob);
-              window.open(url, "_blank", "noopener,noreferrer");
-              setTimeout(() => URL.revokeObjectURL(url), 60_000);
-            } catch (e) {
-              setErr(`${e.code}: ${e.message}`);
-            }
-          }}
-        >
-          Generate Takeoff PDF
-        </Button>
+        {showPdf ? (
+          <Button
+            variant="outlined"
+            disabled={saving || !hasLines}
+            onClick={async () => {
+              try {
+                const blob = await apiGetTakeoffPdfBlob(orderId);
+                const url = URL.createObjectURL(blob);
+                window.open(url, "_blank", "noopener,noreferrer");
+                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              } catch (e) {
+                setErr(`${e.code}: ${e.message}`);
+              }
+            }}
+          >
+            Generate Takeoff PDF
+          </Button>
+        ) : null}
       </Box>
 
       <TakeoffHeaderForm value={header} onChange={setHeader} />

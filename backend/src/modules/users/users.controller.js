@@ -4,6 +4,7 @@ const {
   updateUserSchema,
   enforce2faSchema,
   productionQueuesSchema,
+  resetPasswordSchema,
 } = require("./users.dto");
 const {
   listUsers,
@@ -12,6 +13,7 @@ const {
   disableUser,
   set2faEnforcement,
   setUserProductionQueues,
+  resetUserPassword,
 } = require("./users.service");
 
 async function getUsers(req, res, next) {
@@ -89,6 +91,17 @@ async function patchUserProductionQueues(req, res, next) {
   }
 }
 
+// NEW
+async function patchUserPassword(req, res, next) {
+  try {
+    const body = resetPasswordSchema.parse(req.body);
+    const result = await resetUserPassword(req.params.id, body.password);
+    return ok(res, result);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   getUsers,
   postUser,
@@ -96,4 +109,5 @@ module.exports = {
   patchDisableUser,
   patchEnforce2fa,
   patchUserProductionQueues,
+  patchUserPassword,
 };

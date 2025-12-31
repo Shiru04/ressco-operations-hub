@@ -36,3 +36,9 @@ export async function apiPatchUserProductionQueues(id, productionQueues) {
   });
   return data.data; // { id, productionQueues }
 }
+
+// NEW: reset password
+export async function apiResetUserPassword(id, password) {
+  const { data } = await http.patch(`/api/users/${id}/password`, { password });
+  return data.data;
+}

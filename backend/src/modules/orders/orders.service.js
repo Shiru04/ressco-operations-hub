@@ -10,6 +10,7 @@ const {
 const {
   createNotification,
 } = require("../notifications/notifications.service");
+const { User } = require("../users/users.model");
 
 function normalizeContactSnapshot(c) {
   if (!c) return undefined;
@@ -439,85 +440,69 @@ function mapOrder(o) {
 }
 
 async function getOrderCostingBreakdown(orderId) {
-  const doc = await Order.findById(orderId).lean();
-  if (!doc) {
+  const order = await Order.findById(orderId).lean();
+  if (!order) {
     const err = new Error("Order not found");
-    err.code = "ORDER_NOT_FOUND";
     err.statusCode = 404;
     throw err;
   }
 
-  const takeoffItems = Array.isArray(doc.takeoff?.items)
-    ? doc.takeoff.items
+  const items = order.takeoff?.items || [];
+
+  // 1) Collect userIds (assignedTo + workLog.userId)
+  const userIdSet = new Set();
+
+  for (const it of items) {
+    if (it.assignedTo) userIdSet.add(String(it.assignedTo));
+    for (const wl of it.workLog || []) {
+      if (wl.userId) userIdSet.add(String(wl.userId));
+    }
+  }
+
+  // 2) Fetch users once
+  const users = userIdSet.size
+    ? await User.find(
+        { _id: { $in: Array.from(userIdSet) } },
+        { name: 1 }
+      ).lean()
     : [];
 
-  const items = takeoffItems.map((it) => {
-    const wl = Array.isArray(it.workLog) ? it.workLog : [];
-    const laborSec = wl.reduce(
-      (sum, w) => sum + (Number(w.durationSec) || 0),
+  const userNameById = new Map(users.map((u) => [String(u._id), u.name]));
+
+  // 3) Build costing items
+  const costingItems = items.map((it, idx) => {
+    const laborSec = (it.workLog || []).reduce(
+      (sum, wl) => sum + (wl.durationSec || 0),
       0
     );
 
     return {
-      itemId: String(it._id),
+      itemId: it._id ? String(it._id) : String(idx),
       typeCode: it.typeCode,
-      qty: it.qty || 1,
-      pieceStatus: it.pieceStatus || "queued",
-      assignedTo: it.assignedTo || null,
-      laborSec,
+      qty: it.qty,
+      pieceStatus: it.pieceStatus,
+      assignedTo: it.assignedTo ? String(it.assignedTo) : null,
+      assignedToName: it.assignedTo
+        ? userNameById.get(String(it.assignedTo)) || null
+        : null,
       laborHours: Math.round((laborSec / 3600) * 100) / 100,
-      sessions: wl.length,
+      sessions: (it.workLog || []).length,
     };
   });
 
-  const totalLaborSec = items.reduce((sum, i) => sum + (i.laborSec || 0), 0);
-
-  // Rollups computed from same safe array
-  const byUser = new Map();
-  for (const it of takeoffItems) {
-    const wl = Array.isArray(it.workLog) ? it.workLog : [];
-    for (const w of wl) {
-      const uid = w.userId ? String(w.userId) : "unassigned";
-      const curr = byUser.get(uid) || { userId: uid, laborSec: 0, sessions: 0 };
-      curr.laborSec += Number(w.durationSec) || 0;
-      curr.sessions += 1;
-      byUser.set(uid, curr);
-    }
-  }
-
-  const byQueue = new Map();
-  for (const it of takeoffItems) {
-    const q = it.pieceStatus || "queued";
-    const wl = Array.isArray(it.workLog) ? it.workLog : [];
-    const work = wl.reduce((sum, w) => sum + (Number(w.durationSec) || 0), 0);
-    const curr = byQueue.get(q) || { queueKey: q, laborSec: 0, items: 0 };
-    curr.laborSec += work;
-    curr.items += 1;
-    byQueue.set(q, curr);
-  }
+  const totalLaborHours =
+    Math.round(
+      costingItems.reduce((s, i) => s + (i.laborHours || 0), 0) * 100
+    ) / 100;
 
   return {
-    orderId: String(doc._id),
-    orderNumber: doc.orderNumber,
-    status: doc.status,
+    orderId: String(order._id),
+    orderNumber: order.orderNumber,
+    status: order.status,
     totals: {
-      laborHours: Math.round((totalLaborSec / 3600) * 100) / 100,
-      laborSec: totalLaborSec,
-      items: items.length,
+      laborHours: totalLaborHours,
     },
-    items,
-    byUser: Array.from(byUser.values()).map((r) => ({
-      userId: r.userId,
-      laborHours: Math.round((r.laborSec / 3600) * 100) / 100,
-      laborSec: r.laborSec,
-      sessions: r.sessions,
-    })),
-    byQueue: Array.from(byQueue.values()).map((r) => ({
-      queueKey: r.queueKey,
-      laborHours: Math.round((r.laborSec / 3600) * 100) / 100,
-      laborSec: r.laborSec,
-      items: r.items,
-    })),
+    items: costingItems,
   };
 }
 
