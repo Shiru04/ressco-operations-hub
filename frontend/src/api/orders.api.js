@@ -38,12 +38,36 @@ export async function apiPatchOrderTakeoff(id, payload) {
   const { data } = await http.patch(`/api/orders/${id}/takeoff`, payload);
   return data.data;
 }
+
 export async function apiGetTakeoffPdfBlob(orderId) {
   const res = await http.get(`/api/orders/${orderId}/pdf/takeoff`, {
     responseType: "blob",
   });
   return res.data; // Blob
 }
+
+// NEW: Operational PDFs (blob)
+export async function apiGetInvoicePdfBlob(orderId) {
+  const res = await http.get(`/api/orders/${orderId}/pdf/invoice`, {
+    responseType: "blob",
+  });
+  return res.data;
+}
+
+export async function apiGetPackingSlipPdfBlob(orderId) {
+  const res = await http.get(`/api/orders/${orderId}/pdf/packing-slip`, {
+    responseType: "blob",
+  });
+  return res.data;
+}
+
+export async function apiGetCompletionReportPdfBlob(orderId) {
+  const res = await http.get(`/api/orders/${orderId}/pdf/completion-report`, {
+    responseType: "blob",
+  });
+  return res.data;
+}
+
 //unappproved order
 export async function apiUnapproveOrder(id) {
   const { data } = await http.post(`/api/orders/${id}/unapprove`);

@@ -15,15 +15,20 @@ import {
 import { DataGrid } from "@mui/x-data-grid";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  apiApproveOrder,
   apiGetOrder,
   apiPatchOrderStatus,
+  apiGetTakeoffPdfBlob,
+  apiGetInvoicePdfBlob,
+  apiGetPackingSlipPdfBlob,
+  apiGetCompletionReportPdfBlob,
 } from "../../api/orders.api";
 import { apiListAuditEvents } from "../../api/audit.api";
 import { useAuth } from "../../app/providers/AuthProvider";
 import TakeoffBuilder from "./takeoff/TakeoffBuilder";
 import PiecesBoard from "./pieces/PiecesBoard";
+import OrderAttachmentsPanel from "./attachments/OrderAttachmentsPanel";
 import { apiListUsers } from "../../api/users.api";
+import OrderMaterialsTab from "./materials/OrderMaterialsTab";
 
 function StatusChip({ value }) {
   const v = value || "received";
@@ -31,87 +36,54 @@ function StatusChip({ value }) {
 }
 
 function shortId(v) {
-  if (!v) return "—";
-  const s = String(v);
+  const s = String(v || "");
   return s.length > 8 ? s.slice(-6) : s;
-}
-
-function secondsToHuman(sec) {
-  const s = Math.max(0, Number(sec || 0));
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  return `${h}h ${rem}m`;
 }
 
 function buildItemNameMap(order) {
   const map = {};
   const items = order?.takeoff?.items || [];
-
   for (const it of items) {
-    const keys = [];
-
-    // ✅ include stable identity (audit now uses this)
-    if (it?.pieceUid) keys.push(String(it.pieceUid));
-
-    // ✅ include mongo ids (back-compat)
-    if (it?._id) keys.push(String(it._id));
-    if (it?.id) keys.push(String(it.id));
-
-    // optional: legacy client id if present
-    if (it?.clientItemId) keys.push(String(it.clientItemId));
-
-    // label: prefer pieceRef, else typeCode
-    let label = it?.pieceRef || it?.typeCode || "Piece";
-    if (it?.qty && it.qty > 1) label += ` (x${it.qty})`;
-    if (it?.material) label += ` ${it.material}`;
-
-    for (const k of keys) map[k] = label;
+    const id = it?.pieceUid || it?.id || it?._id;
+    if (!id) continue;
+    map[String(id)] =
+      it?.pieceRef ||
+      it?.itemLabel ||
+      it?.label ||
+      it?.name ||
+      `Piece ${shortId(id)}`;
   }
-
   return map;
 }
 
-function formatAuditSummary(row, userMap, itemNameMap) {
-  const action = row?.action || "";
-  const c = row?.changes || {};
+function formatAuditLine(item, itemNameMap) {
+  const action = item?.action || "";
+  const c = item?.changes || {};
+  const who = item?.actorName || item?.actorRole || "System";
+  const when = item?.at ? new Date(item.at).toLocaleString() : "";
 
-  const itemIdStr = c.itemId ? String(c.itemId) : null;
-  const itemLabel = itemIdStr
-    ? itemNameMap?.[itemIdStr] || `Piece ${shortId(itemIdStr)}`
-    : "Piece";
+  const itemId =
+    c?.itemId || c?.entityId || c?.pieceUid || c?.attachmentId || "";
 
-  const nameFor = (id) => {
-    if (!id) return null;
-    return userMap?.[String(id)] || null;
-  };
+  const itemLabel =
+    c?.itemLabel ||
+    c?.pieceRef ||
+    (itemId ? itemNameMap?.[String(itemId)] : "") ||
+    (itemId ? `Item ${shortId(itemId)}` : "Item");
 
   switch (action) {
-    case "order_status_changed": {
-      const from = c.from || "—";
-      const to = c.to || "—";
-      const note = c.note ? ` (Note: ${c.note})` : "";
-      return `Order status: ${from} → ${to}${note}`;
-    }
-
-    case "order_approved":
-    case "order_approve":
-      return "Order approved";
-
-    case "piece_assign": {
-      const q = c.assignedQueueKey || c.pieceStatus || "—";
-      const assignedToName = nameFor(c.assignedTo);
-      const assignedToText = c.assignedTo
-        ? `Assigned to ${assignedToName || shortId(c.assignedTo)}`
-        : "Unassigned";
-      return `${itemLabel}: Queue ${q}. ${assignedToText}.`;
-    }
-
+    case "order_create":
+      return `Order created`;
+    case "order_status":
+      return `Status changed: ${c.from || "—"} → ${c.to || "—"} (${who})`;
     case "piece_timer_start":
-      return `${itemLabel}: Timer started`;
+      return `${itemLabel}: Timer started (${who})`;
     case "piece_timer_pause":
-      return `${itemLabel}: Timer paused`;
+      return `${itemLabel}: Timer paused (${who})`;
+    case "piece_timer_resume":
+      return `${itemLabel}: Timer resumed (${who})`;
+    case "piece_timer_stop":
+      return `${itemLabel}: Timer stopped (${who})`;
     case "takeoff_patch": {
       const headerChanged = Boolean(c["takeoff.header"]);
       const itemsCount = Number(c["takeoff.items.count"] || 0);
@@ -119,162 +91,121 @@ function formatAuditSummary(row, userMap, itemNameMap) {
       if (headerChanged && itemsCount > 0) {
         return `Takeoff updated: header changed, ${itemsCount} item${
           itemsCount > 1 ? "s" : ""
-        } updated`;
+        } updated (${who})`;
       }
-
-      if (headerChanged) {
-        return "Takeoff header updated";
-      }
-
-      if (itemsCount > 0) {
+      if (headerChanged) return `Takeoff header updated (${who})`;
+      if (itemsCount > 0)
         return `Takeoff items updated (${itemsCount} item${
           itemsCount > 1 ? "s" : ""
-        })`;
-      }
-
-      return "Takeoff updated";
+        }) (${who})`;
+      return `Takeoff updated (${who})`;
     }
-
-    case "piece_timer_resume":
-      return `${itemLabel}: Timer resumed`;
-    case "piece_timer_stop":
-      return `${itemLabel}: Timer stopped (${secondsToHuman(c.durationSec)})`;
-    case "piece_status_change": {
-      const from = c.from || "—";
-      const to = c.to || "—";
-      return `Assigned ${itemLabel}: Queue ${from} → ${to}`;
-    }
-
-    default: {
-      const keys =
-        c && typeof c === "object" ? Object.keys(c).filter(Boolean) : [];
-      const hint = keys.length
-        ? ` (${keys.slice(0, 4).join(", ")}${keys.length > 4 ? ", …" : ""})`
-        : "";
-      return `${action || "event"}${hint}`;
-    }
+    case "attachment_upload":
+      return `Attachment uploaded: ${c.originalName || "file"} (${who})`;
+    case "attachment_delete":
+      return `Attachment deleted: ${c.originalName || "file"} (${who})`;
+    case "attachment_update_meta":
+      return `Attachment metadata updated (${who})`;
+    default:
+      return `${action || "event"} ${when ? `(${when})` : ""}`;
   }
+}
+
+function downloadBlob(blob, filename) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }
 
 export default function OrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useAuth(); // keeping (may be used for role gating later)
 
-  const [order, setOrder] = useState(null);
   const [tab, setTab] = useState(0);
 
-  const [err, setErr] = useState("");
+  const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
 
-  const [nextStatus, setNextStatus] = useState("");
-  const [note, setNote] = useState("");
+  const [newStatus, setNewStatus] = useState("");
 
+  // Audit state (kept same structure as ZIP)
   const [auditRows, setAuditRows] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditErr, setAuditErr] = useState("");
+  const [usersById, setUsersById] = useState({});
 
-  const [userMap, setUserMap] = useState({});
-  const [itemNameMap, setItemNameMap] = useState({});
+  const itemNameMap = useMemo(() => buildItemNameMap(order), [order]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadUsers() {
-      try {
-        const res = await apiListUsers({ q: "", page: 1, limit: 500 });
-        const items = res?.items || res || [];
-        const map = {};
-        for (const u of items) {
-          map[String(u.id || u._id)] =
-            u.name || u.email || shortId(u.id || u._id);
-        }
-        if (mounted) setUserMap(map);
-      } catch {
-        // silent fallback to short ids
-      }
-    }
-
-    loadUsers();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const canApprove = useMemo(
-    () => ["admin", "supervisor"].includes(user?.role),
-    [user]
-  );
-  const canStatusChange = canApprove;
-
-  const isPrivileged = useMemo(
-    () => ["admin", "supervisor"].includes(user?.role),
-    [user]
-  );
-
-  const auditColumns = useMemo(() => {
-    const cols = [
+  const auditCols = useMemo(
+    () => [
       {
         field: "at",
         headerName: "Time",
         width: 190,
-        valueFormatter: (value) =>
-          value ? new Date(value).toLocaleString() : "",
+        valueFormatter: (v) => (v ? new Date(v).toLocaleString() : ""),
+      },
+      {
+        field: "actorUserId",
+        headerName: "Actor",
+        width: 200,
+        valueGetter: (_v, row) => {
+          const id = row?.actorUserId;
+          if (!id) return row?.actorName || row?.actorRole || "System";
+          const u = usersById?.[String(id)];
+          return u
+            ? `${u.name || u.email || String(id)}`
+            : row?.actorName || row?.actorRole || String(id);
+        },
+      },
+      {
+        field: "action",
+        headerName: "Action",
+        width: 170,
+        valueFormatter: (v) => v || "—",
       },
       {
         field: "summary",
         headerName: "Summary",
         flex: 1,
         minWidth: 420,
-        sortable: false,
-        valueGetter: (_value, row) =>
-          formatAuditSummary(row, userMap, itemNameMap),
+        valueGetter: (_v, row) => formatAuditLine(row, itemNameMap),
       },
-      { field: "action", headerName: "Action", width: 180 },
-      {
-        field: "actorRole",
-        headerName: "Role",
-        width: 130,
-        valueFormatter: (value) => value || "—",
-      },
-      {
-        field: "actorUserId",
-        headerName: "Actor",
-        width: 160,
-        valueFormatter: (value) => (value ? shortId(value) : "system"),
-      },
-    ];
-
-    if (isPrivileged) {
-      cols.push({
-        field: "changes",
-        headerName: "Raw Changes",
-        flex: 1,
-        minWidth: 260,
-        valueFormatter: (value) => {
-          try {
-            return JSON.stringify(value || {});
-          } catch {
-            return "";
-          }
-        },
-      });
-    }
-
-    return cols;
-  }, [isPrivileged, userMap, itemNameMap]);
+    ],
+    [usersById, itemNameMap]
+  );
 
   async function load() {
     setErr("");
     setLoading(true);
     try {
       const o = await apiGetOrder(id);
-      setOrder(o);
-      setItemNameMap(buildItemNameMap(o));
+      setOrder({ ...o, id: o.id || o._id });
+      setNewStatus(o.status || "");
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadUsersIfNeeded() {
+    try {
+      // Only for History readability; do not block if it fails.
+      const list = await apiListUsers();
+      const map = {};
+      for (const u of list || []) {
+        map[String(u.id || u._id)] = u;
+      }
+      setUsersById(map);
+    } catch {
+      // ignore
     }
   }
 
@@ -297,25 +228,27 @@ export default function OrderDetailPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  useEffect(() => {
-    if (tab === 4 && order?.id) {
-      loadAudit();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, order?.id]);
-
-  async function approve() {
+  async function onDownloadPdf(kind) {
+    if (!order?.id) return;
     setErr("");
     setLoading(true);
     try {
-      const updated = await apiApproveOrder(id);
-      setOrder(updated);
-      setItemNameMap(buildItemNameMap(updated));
+      if (kind === "takeoff") {
+        const blob = await apiGetTakeoffPdfBlob(order.id);
+        downloadBlob(blob, `${order.orderNumber || "order"}-takeoff.pdf`);
+      } else if (kind === "invoice") {
+        const blob = await apiGetInvoicePdfBlob(order.id);
+        downloadBlob(blob, `${order.orderNumber || "order"}-invoice.pdf`);
+      } else if (kind === "packing") {
+        const blob = await apiGetPackingSlipPdfBlob(order.id);
+        downloadBlob(blob, `${order.orderNumber || "order"}-packing-slip.pdf`);
+      } else if (kind === "completion") {
+        const blob = await apiGetCompletionReportPdfBlob(order.id);
+        downloadBlob(
+          blob,
+          `${order.orderNumber || "order"}-completion-report.pdf`
+        );
+      }
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {
@@ -323,18 +256,30 @@ export default function OrderDetailPage() {
     }
   }
 
-  async function changeStatus() {
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // History tab is now index 5 (Attachments inserted at index 4)
+  useEffect(() => {
+    if (tab === 5 && order?.id) {
+      loadUsersIfNeeded();
+      loadAudit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, order?.id]);
+
+  async function saveStatus() {
+    if (!order?.id) return;
     setErr("");
     setLoading(true);
     try {
-      const updated = await apiPatchOrderStatus(id, {
-        status: nextStatus,
-        note: note || undefined,
+      // Safer: backend expects { status }
+      const updated = await apiPatchOrderStatus(order.id, {
+        status: newStatus,
       });
-      setOrder(updated);
-      setItemNameMap(buildItemNameMap(updated));
-      setNextStatus("");
-      setNote("");
+      setOrder((prev) => ({ ...prev, ...updated }));
     } catch (e) {
       setErr(`${e.code}: ${e.message}`);
     } finally {
@@ -355,40 +300,29 @@ export default function OrderDetailPage() {
 
   if (!order) return null;
 
+  // CRITICAL: ensure Takeoff calls never use undefined orderId
+  const resolvedOrderId = order?.id || order?._id || id;
+
   return (
     <Box sx={{ display: "grid", gap: 2 }}>
       <Box
         sx={{
           display: "flex",
-          flexWrap: "wrap",
-          gap: 1,
           alignItems: "center",
           justifyContent: "space-between",
+          gap: 1,
+          flexWrap: "wrap",
         }}
       >
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
-            {order.orderNumber}
+          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+            {order.orderNumber || "Order"}{" "}
+            <Chip size="small" label={order.status || "received"} />
           </Typography>
-          <Box
-            sx={{
-              display: "flex",
-              gap: 1,
-              alignItems: "center",
-              flexWrap: "wrap",
-              mt: 0.5,
-            }}
-          >
-            <StatusChip value={order.status} />
-            <Chip size="small" label={`source: ${order.source}`} />
-            <Chip size="small" label={`priority: ${order.priority}`} />
-            <Typography variant="body2" sx={{ opacity: 0.75 }}>
-              Updated:{" "}
-              {order.updatedAt
-                ? new Date(order.updatedAt).toLocaleString()
-                : ""}
-            </Typography>
-          </Box>
+          <Typography variant="body2" sx={{ opacity: 0.75 }}>
+            Created:{" "}
+            {order.createdAt ? new Date(order.createdAt).toLocaleString() : "—"}
+          </Typography>
         </Box>
 
         <Box sx={{ display: "flex", gap: 1 }}>
@@ -410,8 +344,11 @@ export default function OrderDetailPage() {
             <Tab label="Approval & Status" />
             <Tab label="Takeoff (POS)" />
             <Tab label="Pieces Board" />
+            <Tab label="Attachments" />
             <Tab label="History" />
+            <Tab label="Order Materials"></Tab>
           </Tabs>
+
           <Divider />
 
           <Box sx={{ p: 2 }}>
@@ -426,81 +363,89 @@ export default function OrderDetailPage() {
                 <Typography variant="body2" sx={{ opacity: 0.85 }}>
                   SLA hours target: {order?.sla?.hoursTarget ?? 48}
                 </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                  Due:{" "}
-                  {order?.sla?.dueAt
-                    ? new Date(order.sla.dueAt).toLocaleString()
-                    : "—"}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ opacity: 0.85, whiteSpace: "pre-wrap" }}
-                >
-                  Notes: {order.notes || "—"}
-                </Typography>
+
+                <Card variant="outlined">
+                  <CardContent sx={{ display: "grid", gap: 1 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                      Documents (PDF)
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                      Downloads use authenticated requests (no public links).
+                    </Typography>
+
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                      <Button
+                        variant="outlined"
+                        onClick={() => onDownloadPdf("takeoff")}
+                        disabled={loading}
+                      >
+                        Takeoff PDF
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => onDownloadPdf("invoice")}
+                        disabled={loading}
+                      >
+                        Invoice PDF
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => onDownloadPdf("packing")}
+                        disabled={loading}
+                      >
+                        Packing Slip PDF
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => onDownloadPdf("completion")}
+                        disabled={loading}
+                      >
+                        Completion Report PDF
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
               </Box>
             )}
 
             {tab === 1 && (
-              <Box sx={{ display: "grid", gap: 2 }}>
+              <Box sx={{ display: "grid", gap: 1.5, maxWidth: 520 }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
                   Approval & Status
                 </Typography>
 
-                <Alert severity="info">
-                  Correct flow: approve first, then move status to{" "}
-                  <b>approved</b>.
-                </Alert>
+                <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                  Current status: <StatusChip value={order.status} />
+                </Typography>
 
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                <TextField
+                  label="Set status"
+                  value={newStatus}
+                  onChange={(e) => setNewStatus(e.target.value)}
+                  size="small"
+                />
+
+                <Box sx={{ display: "flex", gap: 1 }}>
                   <Button
                     variant="contained"
-                    disabled={!canApprove || loading}
-                    onClick={approve}
+                    onClick={saveStatus}
+                    disabled={loading}
                   >
-                    Approve (Supervisor)
-                  </Button>
-
-                  <TextField
-                    label="Next status"
-                    value={nextStatus}
-                    onChange={(e) => setNextStatus(e.target.value)}
-                    size="small"
-                    placeholder="approved / in_progress / completed"
-                    sx={{ minWidth: 220 }}
-                  />
-                  <TextField
-                    label="Note (optional)"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    size="small"
-                    sx={{ minWidth: 260, flex: 1 }}
-                  />
-
-                  <Button
-                    variant="outlined"
-                    disabled={!canStatusChange || loading || !nextStatus}
-                    onClick={changeStatus}
-                  >
-                    Change Status
+                    Save
                   </Button>
                 </Box>
 
-                <Box sx={{ display: "grid", gap: 1 }}>
-                  <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                    Approvals required: {order?.approvals?.required ?? 1}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                    Approved by: {(order?.approvals?.approvedBy || []).length}
-                  </Typography>
-                </Box>
+                <Alert severity="info">
+                  Status transitions are controlled by server permissions. This
+                  UI does not override backend rules.
+                </Alert>
               </Box>
             )}
 
             {tab === 2 && (
               <TakeoffBuilder
-                orderId={order.id}
-                initialTakeoff={order.takeoff || { header: {}, items: [] }}
+                orderId={resolvedOrderId}
+                initialTakeoff={order?.takeoff}
                 onSaved={(takeoff) =>
                   setOrder((prev) => ({ ...prev, takeoff }))
                 }
@@ -509,7 +454,9 @@ export default function OrderDetailPage() {
 
             {tab === 3 && <PiecesBoard order={order} />}
 
-            {tab === 4 && (
+            {tab === 4 && <OrderAttachmentsPanel order={order} />}
+
+            {tab === 5 && (
               <Box sx={{ display: "grid", gap: 1 }}>
                 <Box
                   sx={{
@@ -535,17 +482,25 @@ export default function OrderDetailPage() {
 
                 {auditErr ? <Alert severity="error">{auditErr}</Alert> : null}
 
-                <Box sx={{ height: 520, width: "100%" }}>
+                <Box sx={{ height: 560 }}>
                   <DataGrid
-                    rows={auditRows}
-                    columns={auditColumns}
-                    getRowId={(r) => r.id}
+                    rows={(auditRows || []).map((x) => ({
+                      ...x,
+                      id: x.id || x._id,
+                    }))}
+                    columns={auditCols}
                     loading={auditLoading}
+                    rowSelection={false}
                     disableRowSelectionOnClick
                   />
                 </Box>
+
+                <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                  Tip: Actor names resolve via Users list when available.
+                </Typography>
               </Box>
             )}
+            {tab === 6 && <OrderMaterialsTab order={order} />}
           </Box>
         </CardContent>
       </Card>

@@ -1,0 +1,29 @@
+const INVENTORY_PRESETS = Object.freeze({
+  LIGHTWEIGHT: "LIGHTWEIGHT",
+  ASSISTED: "ASSISTED",
+  STRICT: "STRICT",
+});
+
+const CONSUMPTION_MODES = Object.freeze({
+  NO_BOM: "NO_BOM",
+  BOM_ASSISTED: "BOM_ASSISTED",
+  BOM_STRICT: "BOM_STRICT",
+});
+
+const NEGATIVE_STOCK_POLICIES = Object.freeze({
+  ALLOW_AND_ALERT: "ALLOW_AND_ALERT",
+});
+
+const INVENTORY_TX_TYPES = Object.freeze({
+  RECEIPT: "receipt",
+  ADJUSTMENT: "adjustment",
+  CONSUME: "consume",
+  RETURN: "return",
+});
+
+module.exports = {
+  INVENTORY_PRESETS,
+  CONSUMPTION_MODES,
+  NEGATIVE_STOCK_POLICIES,
+  INVENTORY_TX_TYPES,
+};

@@ -28,6 +28,9 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 
+// NEW
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
+
 const FULL_DRAWER = 240;
 const MINI_DRAWER = 72;
 
@@ -52,6 +55,15 @@ export default function AppShell() {
       { label: "Orders", icon: <AssignmentIcon />, path: "/orders" },
     ];
 
+    // Inventory (internal roles only)
+    if (["admin", "supervisor", "production", "sales"].includes(user?.role)) {
+      items.push({
+        label: "Inventory",
+        icon: <Inventory2OutlinedIcon />,
+        path: "/inventory/materials",
+      });
+    }
+
     // Unified Dashboard access: admin + supervisor + sales
     if (["admin", "supervisor", "sales"].includes(user?.role)) {
       items.push({
@@ -72,6 +84,12 @@ export default function AppShell() {
         label: "Users",
         icon: <AdminPanelSettingsIcon />,
         path: "/admin/users",
+      });
+      // Inventory settings (admin only)
+      items.push({
+        label: "Inventory Settings",
+        icon: <SettingsIcon />,
+        path: "/inventory/settings",
       });
     }
 
@@ -258,7 +276,7 @@ export default function AppShell() {
         sx={{
           flexGrow: 1,
           p: 2,
-          mt: "48px",
+          pt: 7,
           ml: { md: `${drawerWidth}px` },
           width: { md: `calc(100% - ${drawerWidth}px)` },
         }}

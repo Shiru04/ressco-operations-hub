@@ -162,7 +162,7 @@ const TimerSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// Replace ONLY your current TakeoffItemSchema with this:
+// takeoff schema for items
 const TakeoffItemSchema = new mongoose.Schema(
   {
     lineNo: { type: Number, default: 0 }, // display ordering
@@ -172,6 +172,8 @@ const TakeoffItemSchema = new mongoose.Schema(
     material: { type: String, default: null, trim: true }, // optional
     measurements: { type: Object, default: {} },
     remarks: { type: String, default: "", trim: true },
+    unitPrice: { type: Number, default: null, min: 0 },
+    lineTotal: { type: Number, default: null, min: 0 },
 
     // Queue + status invariant (DO NOT change behavior elsewhere)
     pieceStatus: { type: String, default: "queued", trim: true },

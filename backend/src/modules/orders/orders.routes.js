@@ -7,6 +7,12 @@ const { ROLES } = require("../../shared/constants/roles");
 const { patchTakeoff } = require("./orders.takeoff.controller");
 const { getTakeoffPdf } = require("./orders.pdf.controller");
 
+const {
+  getInvoicePdf,
+  getPackingSlipPdf,
+  getCompletionReportPdf,
+} = require("./orders.operationalPdf.controller");
+
 const { intakeLimiter } = require("./orders.rateLimit");
 const {
   getOrders,
@@ -58,6 +64,28 @@ router.get(
 );
 //Costing route
 router.get("/:id/costing", authRequired, require2FAForAdmin, getOrderCosting);
+
+//Operational PDFs (auth required)
+router.get(
+  "/:id/pdf/invoice",
+  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR]),
+  require2FAForAdmin,
+  getInvoicePdf
+);
+
+router.get(
+  "/:id/pdf/packing-slip",
+  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  require2FAForAdmin,
+  getPackingSlipPdf
+);
+
+router.get(
+  "/:id/pdf/completion-report",
+  requireRoles([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  require2FAForAdmin,
+  getCompletionReportPdf
+);
 
 // Takeoff PDF (auth required)
 router.get(

@@ -11,9 +11,12 @@ import OrderDetailPage from "../pages/orders/OrderDetailPage";
 import OrdersBoardPage from "../pages/orders/OrdersBoardPage";
 import ProductionQueuesPage from "../pages/admin/ProductionQueuesPage";
 import UsersAdminPage from "../pages/admin/UsersAdminPage";
-import ProductionDashboardPage from "../pages/dashboard/ProductionDashboardPage";
-import UsersDashboardPage from "../pages/dashboard/UsersDashboardPage";
-import JobCostingPage from "../pages/dashboard/JobCostingPage";
+import DashboardPage from "../pages/Dashboard/DashboardPage";
+
+// Inventory (NEW)
+import InventoryMaterialsPage from "../pages/inventory/InventoryMaterialsPage";
+import InventoryMaterialDetailPage from "../pages/inventory/InventoryMaterialDetailPage";
+import InventorySettingsPage from "../pages/inventory/InventorySettingsPage";
 
 // Portal
 import PortalShell from "../components/layout/PortalShell";
@@ -70,12 +73,18 @@ export default function AppRoutes() {
         <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:id" element={<OrderDetailPage />} />
         <Route path="orders/board" element={<OrdersBoardPage />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+
+        {/* Inventory (NEW) */}
         <Route
-          path="dashboard/production"
-          element={<ProductionDashboardPage />}
+          path="inventory/materials"
+          element={<InventoryMaterialsPage />}
         />
-        <Route path="dashboard/users" element={<UsersDashboardPage />} />
-        <Route path="dashboard/job-costing" element={<JobCostingPage />} />
+        <Route
+          path="inventory/materials/:id"
+          element={<InventoryMaterialDetailPage />}
+        />
+        <Route path="inventory/settings" element={<InventorySettingsPage />} />
 
         {/* Admin */}
         <Route
