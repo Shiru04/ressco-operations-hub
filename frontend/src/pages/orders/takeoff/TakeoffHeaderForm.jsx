@@ -7,6 +7,7 @@ import {
   TextField,
   FormControlLabel,
   Checkbox,
+  MenuItem,
 } from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { fromISOToLADayjs, toLADateISO } from "../../../lib/dayjs";
@@ -86,12 +87,17 @@ export default function TakeoffHeaderForm({ value, onChange }) {
             value={h.jobContactPhone || ""}
             onChange={(e) => patch({ jobContactPhone: e.target.value })}
           />
-
           <TextField
-            label="Code (SMACNA/UMC/Other)"
+            select
+            label="Code"
             value={h.code || ""}
             onChange={(e) => patch({ code: e.target.value || null })}
-          />
+            fullWidth
+          >
+            <MenuItem value="SMACNA">SMACNA</MenuItem>
+            <MenuItem value="UMC">UMC</MenuItem>
+            <MenuItem value="Other">Other</MenuItem>
+          </TextField>
           <TextField
             label="Pressure Class"
             value={h.pressureClass || ""}
