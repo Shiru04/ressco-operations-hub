@@ -99,11 +99,21 @@ async function createOrder(payload, actor, req) {
     req,
   });
 
+  // ✅ FIX: notify admins when order is created (customer or internal)
+  await createNotification({
+    type: "order_created",
+    title: "New Order Created",
+    message: `Order ${doc.orderNumber} created (${doc.source}).`,
+    entityType: "order",
+    entityId: doc._id,
+    orderNumber: doc.orderNumber,
+    roles: ["admin", "sales", "supervisor", "production"],
+  });
+
   return mapOrder(doc);
 }
 
 async function intakeOrder(payload, req) {
-  // Website intake has no authenticated actor; still auditable with IP/UA.
   const created = await createOrder(
     { ...payload, source: "website" },
     { userId: null, role: "website" },
@@ -223,8 +233,6 @@ async function updateOrder(id, patch, actor, req) {
 }
 
 function assertTransition(from, to) {
-  // Phase 5B interim: allow any status -> any status
-  // RBAC restrictions are enforced at the route/controller level.
   return true;
 }
 
@@ -259,7 +267,6 @@ async function patchStatus(id, nextStatus, actor, req, note) {
 
   const current = doc.status;
 
-  // guard: if moving to approved, require approval record exists
   if (nextStatus === ORDER_STATUSES.APPROVED) {
     const approvedCount = doc.approvals?.approvedBy?.length || 0;
     assertRoleCanSetStatus(actor?.role, nextStatus);
@@ -294,7 +301,6 @@ async function patchStatus(id, nextStatus, actor, req, note) {
 }
 
 async function approveOrder(id, actor, req) {
-  // Idempotent: if same supervisor already approved, return unchanged.
   const doc = await Order.findById(id);
   if (!doc) {
     const err = new Error("Order not found");
@@ -330,11 +336,11 @@ async function approveOrder(id, actor, req) {
     req,
   });
 
-  // Notify operational roles: adjust roles if you want more/less
+  // ✅ FIX: correct approval notification
   await createNotification({
-    type: "order_created",
-    title: "New Order Created",
-    message: `Order ${doc.orderNumber} created (${doc.source}).`,
+    type: "order_approved",
+    title: "Order Approved",
+    message: `Order ${doc.orderNumber} was approved.`,
     entityType: "order",
     entityId: doc._id,
     orderNumber: doc.orderNumber,
@@ -343,6 +349,7 @@ async function approveOrder(id, actor, req) {
 
   return mapOrder(doc);
 }
+
 async function unapproveOrder(orderId, { actor, req }) {
   const doc = await Order.findById(orderId);
   if (!doc) {
@@ -352,11 +359,10 @@ async function unapproveOrder(orderId, { actor, req }) {
     throw err;
   }
 
-  // Clear approvals but do not force status here (frontend will set status explicitly)
   if (doc.approvals) {
     doc.approvals.approvedBy = [];
-    doc.approvals.count = 0; // if you store count
-    doc.approvals.lastApprovedAt = null; // if present
+    doc.approvals.count = 0;
+    doc.approvals.lastApprovedAt = null;
   }
 
   doc.audit.lastEditedAt = new Date();
@@ -385,16 +391,14 @@ function mapOrder(o) {
     priority: o.priority,
     sla: o.sla || {},
     status: o.status,
-
     takeoff: {
       header: o.takeoff?.header || {},
       items: (o.takeoff?.items || []).map((it) => ({
         _id: it._id,
-        id: it._id, // compatibility for older UI code
+        id: it._id,
         pieceUid: it.pieceUid || null,
         pieceRef: it.pieceRef || null,
         clientItemId: it.clientItemId || null,
-
         lineNo: it.lineNo ?? 0,
         typeCode: it.typeCode,
         qty: it.qty ?? 1,
@@ -402,18 +406,15 @@ function mapOrder(o) {
         material: it.material ?? null,
         measurements: it.measurements || {},
         remarks: it.remarks || "",
-
         pieceStatus: it.pieceStatus,
         assignedQueueKey: it.assignedQueueKey,
         assignedTo: it.assignedTo || null,
         assignedAt: it.assignedAt || null,
         assignedBy: it.assignedBy || null,
-
         timer: it.timer || {},
         workLog: it.workLog || [],
       })),
     },
-
     approvals: {
       required: o.approvals?.required ?? 1,
       approvedBy: (o.approvals?.approvedBy || []).map((a) => ({
@@ -421,7 +422,6 @@ function mapOrder(o) {
         at: a.at,
       })),
     },
-
     estimate: o.estimate || {},
     items: (o.items || []).map((i) => ({
       id: i._id,
@@ -430,7 +430,6 @@ function mapOrder(o) {
       unitPrice: i.unitPrice,
       notes: i.notes,
     })),
-
     notes: o.notes || "",
     audit: o.audit || {},
     createdBy: o.createdBy || null,
@@ -448,8 +447,6 @@ async function getOrderCostingBreakdown(orderId) {
   }
 
   const items = order.takeoff?.items || [];
-
-  // 1) Collect userIds (assignedTo + workLog.userId)
   const userIdSet = new Set();
 
   for (const it of items) {
@@ -459,7 +456,6 @@ async function getOrderCostingBreakdown(orderId) {
     }
   }
 
-  // 2) Fetch users once
   const users = userIdSet.size
     ? await User.find(
         { _id: { $in: Array.from(userIdSet) } },
@@ -469,7 +465,6 @@ async function getOrderCostingBreakdown(orderId) {
 
   const userNameById = new Map(users.map((u) => [String(u._id), u.name]));
 
-  // 3) Build costing items
   const costingItems = items.map((it, idx) => {
     const laborSec = (it.workLog || []).reduce(
       (sum, wl) => sum + (wl.durationSec || 0),
@@ -499,9 +494,7 @@ async function getOrderCostingBreakdown(orderId) {
     orderId: String(order._id),
     orderNumber: order.orderNumber,
     status: order.status,
-    totals: {
-      laborHours: totalLaborHours,
-    },
+    totals: { laborHours: totalLaborHours },
     items: costingItems,
   };
 }

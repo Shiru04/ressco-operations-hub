@@ -4,6 +4,8 @@ import ToastProvider from "../../components/ui/ToastProvider";
 
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+
+import { AuthProvider } from "../../app/providers/AuthProvider";
 import { NotificationsProvider } from "../../context/NotificationsContext";
 
 export default function AppProviders({ children }) {
@@ -12,7 +14,11 @@ export default function AppProviders({ children }) {
       <CssBaseline />
       <ToastProvider>
         <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <NotificationsProvider> {children} </NotificationsProvider>
+          <AuthProvider>
+            <NotificationsProvider>
+              {children}
+            </NotificationsProvider>
+          </AuthProvider>
         </LocalizationProvider>
       </ToastProvider>
     </ThemeProvider>

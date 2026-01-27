@@ -7,93 +7,205 @@ import React, {
   useState,
 } from "react";
 import { io } from "socket.io-client";
-import { apiGetMyNotifications } from "../api/notifications.api";
+import {
+  apiGetMyNotifications,
+  apiMarkAllRead,
+  apiMarkOneRead,
+} from "../api/notifications.api";
 import { useAuth } from "../app/providers/AuthProvider";
 
 const NotificationsContext = createContext(null);
 
 export function NotificationsProvider({ children }) {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
+
+  /* ----------------------------
+     State
+  -----------------------------*/
 
   const [items, setItems] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  // sound policy: default off until user enables
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    return localStorage.getItem("notifications:sound") === "true";
+  });
 
-  // to satisfy autoplay restrictions: only play after user interaction
-  const userInteractedRef = useRef(false);
-  const audioRef = useRef(null);
+  const socketRef = useRef(null);
+
+  const SOCKET_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+
+  /* ----------------------------
+     Persist sound preference
+  -----------------------------*/
 
   useEffect(() => {
-    function markInteracted() {
-      userInteractedRef.current = true;
-      window.removeEventListener("pointerdown", markInteracted);
-      window.removeEventListener("keydown", markInteracted);
+    localStorage.setItem("notifications:sound", String(soundEnabled));
+  }, [soundEnabled]);
+
+  /* ----------------------------
+     Normalize roles (IMPORTANT)
+  -----------------------------*/
+
+  const roleNames = useMemo(() => {
+    if (!user) return [];
+
+    // Backend sends single role
+    if (typeof user.role === "string") {
+      return [user.role];
     }
-    window.addEventListener("pointerdown", markInteracted);
-    window.addEventListener("keydown", markInteracted);
+
+    // Future-proofing if roles array is ever added
+    if (Array.isArray(user.roles)) {
+      return user.roles
+        .map((r) => {
+          if (typeof r === "string") return r;
+          if (typeof r === "object" && r?.name) return r.name;
+          return null;
+        })
+        .filter(Boolean);
+    }
+
+    return [];
+  }, [user]);
+
+  /* ----------------------------
+     Derived state
+  -----------------------------*/
+
+  const unreadCount = useMemo(() => {
+    if (!Array.isArray(items) || !user?.id) return 0;
+
+    return items.filter(
+      (n) => !Array.isArray(n.readBy) || !n.readBy.includes(user.id)
+    ).length;
+  }, [items, user?.id]);
+
+  /* ----------------------------
+     Initial fetch
+  -----------------------------*/
+
+  useEffect(() => {
+    if (!user) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await apiGetMyNotifications();
+        const normalizedItems = Array.isArray(data?.items) ? data.items : [];
+
+        if (mounted) setItems(normalizedItems);
+      } catch (err) {
+        console.error("[Notifications] fetch failed", err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
     return () => {
-      window.removeEventListener("pointerdown", markInteracted);
-      window.removeEventListener("keydown", markInteracted);
+      mounted = false;
     };
-  }, []);
+  }, [user]);
+
+  /* ----------------------------
+     Socket lifecycle
+  -----------------------------*/
 
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/new-order.mp3");
-    audioRef.current.preload = "auto";
-  }, []);
+    if (!user || socketRef.current) return;
 
-  async function refresh() {
-    if (!token) return;
-    const data = await apiGetMyNotifications(50);
-    setItems(data.items || []);
-    setUnreadCount(data.unreadCount || 0);
-  }
-
-  useEffect(() => {
-    refresh().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-
-  useEffect(() => {
-    if (!token || !user?.role) return;
-
-    // Use same origin as frontend by default; set VITE_API_BASE_URL if needed
-    const socket = io(import.meta.env.VITE_API_SOCKET_URL || "/", {
+    const socket = io(SOCKET_URL, {
       transports: ["websocket"],
-      auth: { token }, // optional; we won't enforce server-side in v1
+      withCredentials: true,
     });
 
-    socket.on("connect", () => {
-      socket.emit("joinRoles", [user.role]);
-    });
+    socketRef.current = socket;
 
-    socket.on("notification:new", (n) => {
-      setItems((prev) => [n, ...prev].slice(0, 200));
-      setUnreadCount((c) => c + 1);
+    socket.on("connect", async () => {
+      console.info("[Notifications] socket connected");
+      console.info("[Notifications] joining roles:", roleNames);
 
-      if (soundEnabled && userInteractedRef.current && audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {});
+      if (roleNames.length) {
+        socket.emit("joinRoles", roleNames);
+      }
+
+      // Pull missed notifications after reconnect
+      try {
+        const data = await apiGetMyNotifications();
+        const normalizedItems = Array.isArray(data?.items) ? data.items : [];
+        setItems(normalizedItems);
+      } catch (err) {
+        console.error("[Notifications] refetch on connect failed", err);
       }
     });
 
-    return () => socket.disconnect();
-  }, [token, user?.role, soundEnabled]);
+    socket.on("notification:new", (notification) => {
+      console.info("[Notifications] realtime notification", notification);
 
-  const value = useMemo(
-    () => ({
-      items,
-      unreadCount,
-      setUnreadCount,
-      setItems,
-      soundEnabled,
-      setSoundEnabled,
-      refresh,
-    }),
-    [items, unreadCount, soundEnabled]
-  );
+      setItems((prev) => {
+        if (prev.some((n) => n.id === notification.id)) return prev;
+        return [notification, ...prev];
+      });
+
+      if (soundEnabled) {
+        new Audio("/sounds/notification.mp3").play().catch(() => {});
+      }
+    });
+
+    socket.on("disconnect", (reason) => {
+      console.warn("[Notifications] socket disconnected", reason);
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [user, SOCKET_URL, roleNames, soundEnabled]);
+
+  /* ----------------------------
+     Actions
+  -----------------------------*/
+
+  const markOneRead = async (id) => {
+    await apiMarkOneRead(id);
+
+    setItems((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, readBy: [...(n.readBy || []), user.id] } : n
+      )
+    );
+  };
+
+  const markAllRead = async () => {
+    await apiMarkAllRead();
+
+    setItems((prev) =>
+      prev.map((n) => ({
+        ...n,
+        readBy: [...new Set([...(n.readBy || []), user.id])],
+      }))
+    );
+  };
+
+  /* ----------------------------
+     Context value
+  -----------------------------*/
+
+  const value = {
+    items,
+    unreadCount,
+    loading,
+    markOneRead,
+    markAllRead,
+    soundEnabled,
+    setSoundEnabled,
+  };
 
   return (
     <NotificationsContext.Provider value={value}>
@@ -104,9 +216,12 @@ export function NotificationsProvider({ children }) {
 
 export function useNotifications() {
   const ctx = useContext(NotificationsContext);
-  if (!ctx)
+
+  if (!ctx) {
     throw new Error(
       "useNotifications must be used within NotificationsProvider"
     );
+  }
+
   return ctx;
 }

@@ -27,8 +27,7 @@ import NotificationsBell from "./NotificationsBell";
 import SettingsIcon from "@mui/icons-material/Settings";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import DashboardIcon from "@mui/icons-material/Dashboard";
-
-// NEW
+import AccountBoxIcon from "@mui/icons-material/AccountBox";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
 
 const FULL_DRAWER = 240;
@@ -49,13 +48,15 @@ export default function AppShell() {
     [isMdUp, collapsed]
   );
 
+  // ==========================
+  // TOP NAVIGATION (MAIN)
+  // ==========================
   const navItems = useMemo(() => {
     const items = [
       { label: "Customers", icon: <PeopleAltIcon />, path: "/customers" },
       { label: "Orders", icon: <AssignmentIcon />, path: "/orders" },
     ];
 
-    // Inventory (internal roles only)
     if (["admin", "supervisor", "production", "sales"].includes(user?.role)) {
       items.push({
         label: "Inventory",
@@ -64,7 +65,6 @@ export default function AppShell() {
       });
     }
 
-    // Unified Dashboard access: admin + supervisor + sales
     if (["admin", "supervisor", "sales"].includes(user?.role)) {
       items.push({
         label: "Dashboard",
@@ -73,7 +73,6 @@ export default function AppShell() {
       });
     }
 
-    // Admin-only
     if (user?.role === "admin") {
       items.push({
         label: "Production Queues",
@@ -85,7 +84,6 @@ export default function AppShell() {
         icon: <AdminPanelSettingsIcon />,
         path: "/admin/users",
       });
-      // Inventory settings (admin only)
       items.push({
         label: "Inventory Settings",
         icon: <SettingsIcon />,
@@ -96,34 +94,31 @@ export default function AppShell() {
     return items;
   }, [user?.role]);
 
+  // ==========================
+  // DRAWER CONTENT
+  // ==========================
   const drawerContent = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <Box
-        sx={{ px: 2, py: 1.5, display: "flex", alignItems: "center", gap: 1 }}
-      >
+      {/* HEADER */}
+      <Box sx={{ px: 2, py: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
         {!collapsed ? (
           <>
             <Box sx={{ flex: 1 }}>
-              <Typography
-                variant="subtitle1"
-                sx={{ fontWeight: 900, lineHeight: 1.1 }}
-              >
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
                 Ressco Hub
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.75 }}>
                 {user?.email}
               </Typography>
             </Box>
-            {isMdUp ? (
+            {isMdUp && (
               <IconButton size="small" onClick={() => setCollapsed(true)}>
                 <ChevronLeftIcon fontSize="small" />
               </IconButton>
-            ) : null}
+            )}
           </>
         ) : (
-          <Box
-            sx={{ width: "100%", display: "flex", justifyContent: "center" }}
-          >
+          <Box sx={{ width: "100%", display: "flex", justifyContent: "center" }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
               R
             </Typography>
@@ -133,9 +128,11 @@ export default function AppShell() {
 
       <Divider />
 
+      {/* MAIN NAV */}
       <List sx={{ px: 1, pt: 1 }}>
         {navItems.map((item) => {
           const active = location.pathname.startsWith(item.path);
+
           const button = (
             <ListItemButton
               key={item.path}
@@ -158,7 +155,7 @@ export default function AppShell() {
               >
                 {item.icon}
               </ListItemIcon>
-              {!collapsed ? <ListItemText primary={item.label} /> : null}
+              {!collapsed && <ListItemText primary={item.label} />}
             </ListItemButton>
           );
 
@@ -172,9 +169,52 @@ export default function AppShell() {
         })}
       </List>
 
+      {/* PUSH BOTTOM */}
       <Box sx={{ flex: 1 }} />
 
       <Divider />
+
+      {/* PROFILE (BOTTOM) */}
+      <List sx={{ px: 1, pt: 1 }}>
+        {(() => {
+          const active = location.pathname.startsWith("/profile");
+
+          const button = (
+            <ListItemButton
+              onClick={() => {
+                navigate("/profile");
+                setMobileOpen(false);
+              }}
+              selected={active}
+              sx={{
+                borderRadius: 2,
+                mb: 0.5,
+                justifyContent: collapsed ? "center" : "flex-start",
+              }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: collapsed ? "auto" : 40,
+                  justifyContent: "center",
+                }}
+              >
+                <AccountBoxIcon />
+              </ListItemIcon>
+              {!collapsed && <ListItemText primary="Profile" />}
+            </ListItemButton>
+          );
+
+          return collapsed ? (
+            <Tooltip title="Profile" placement="right">
+              {button}
+            </Tooltip>
+          ) : (
+            button
+          );
+        })()}
+      </List>
+
+      {/* SIGN OUT */}
       <Box sx={{ p: 1.5 }}>
         {!collapsed ? (
           <Button
@@ -205,6 +245,9 @@ export default function AppShell() {
     </Box>
   );
 
+  // ==========================
+  // LAYOUT
+  // ==========================
   return (
     <Box sx={{ display: "flex" }}>
       <AppBar
@@ -246,12 +289,7 @@ export default function AppShell() {
           display: { xs: "none", md: "block" },
           "& .MuiDrawer-paper": {
             width: drawerWidth,
-            boxSizing: "border-box",
             overflowX: "hidden",
-            transition: theme.transitions.create("width", {
-              easing: theme.transitions.easing.sharp,
-              duration: theme.transitions.duration.shortest,
-            }),
           },
         }}
       >
@@ -278,7 +316,6 @@ export default function AppShell() {
           p: 2,
           pt: 7,
           ml: { md: `${drawerWidth}px` },
-          width: { md: `calc(100% - ${drawerWidth}px)` },
         }}
       >
         <Outlet />

@@ -1,3 +1,4 @@
+const { get } = require("mongoose");
 const { ok } = require("../../shared/http/apiResponse");
 const {
   createUserSchema,
@@ -5,6 +6,7 @@ const {
   enforce2faSchema,
   productionQueuesSchema,
   resetPasswordSchema,
+  updateSelfSchema,
 } = require("./users.dto");
 const {
   listUsers,
@@ -14,6 +16,8 @@ const {
   set2faEnforcement,
   setUserProductionQueues,
   resetUserPassword,
+  updateSelf,
+  getUserById,
 } = require("./users.service");
 
 async function getUsers(req, res, next) {
@@ -101,6 +105,38 @@ async function patchUserPassword(req, res, next) {
     return next(err);
   }
 }
+async function getMe(req, res, next) {
+  try {
+    const userId = req.auth.sub;
+    const user = await getUserById(userId);
+    return ok(res, user);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function updateMe(req, res, next) {
+  try {
+    const dto = updateSelfSchema.parse(req.body);
+    const user = await updateSelf(req.auth.sub, dto);
+    return ok(res, user);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function changeMyPassword(req, res, next) {
+  try {
+    await resetUserPassword(
+      req.auth.sub,
+      req.body.newPassword
+    );
+    return res.status(204).end();
+  } catch (err) {
+    return next(err);
+  }
+}
+
 
 module.exports = {
   getUsers,
@@ -110,4 +146,7 @@ module.exports = {
   patchEnforce2fa,
   patchUserProductionQueues,
   patchUserPassword,
+  getMe,
+  updateMe,
+  changeMyPassword,
 };

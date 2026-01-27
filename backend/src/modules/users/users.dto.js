@@ -1,5 +1,6 @@
 const { z } = require("zod");
 const { ROLES } = require("../../shared/constants/roles");
+const { updateSelf } = require("./users.service");
 
 const objectIdString = z
   .string()
@@ -13,6 +14,11 @@ const createUserSchema = z.object({
 
   // NEW: optional linkage for role === customer
   customerIds: z.array(objectIdString).optional(),
+});
+
+const updateSelfSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
 });
 
 const updateUserSchema = z.object({
@@ -51,4 +57,5 @@ module.exports = {
   enforce2faSchema,
   productionQueuesSchema,
   resetPasswordSchema,
+  updateSelfSchema,
 };

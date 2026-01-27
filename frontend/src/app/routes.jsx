@@ -12,6 +12,7 @@ import OrdersBoardPage from "../pages/orders/OrdersBoardPage";
 import ProductionQueuesPage from "../pages/admin/ProductionQueuesPage";
 import UsersAdminPage from "../pages/admin/UsersAdminPage";
 import DashboardPage from "../pages/Dashboard/DashboardPage";
+import Profile from "../pages/profile/Profile";
 
 // Inventory (NEW)
 import InventoryMaterialsPage from "../pages/inventory/InventoryMaterialsPage";
@@ -74,6 +75,7 @@ export default function AppRoutes() {
         <Route path="orders/:id" element={<OrderDetailPage />} />
         <Route path="orders/board" element={<OrdersBoardPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="profile" element = {<Profile />}/>
 
         {/* Inventory (NEW) */}
         <Route

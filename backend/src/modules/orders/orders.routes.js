@@ -137,34 +137,34 @@ router.patch(
 // Takeoff patch: admin, sales, supervisor
 router.patch(
   "/:id/takeoff",
-  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR]),
+  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR,ROLES.CUSTOMER]),
   require2FAForAdmin,
   patchTakeoff
 );
 
 router.patch(
   "/:id/takeoff/items/:itemId/status",
-  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR, ROLES.PRODUCTION, ROLES.CUSTOMER]),
   require2FAForAdmin,
   patchTakeoffItemStatus
 );
 
 router.patch(
   "/:id/takeoff/items/:itemId/assign",
-  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  requireRoles([ROLES.ADMIN, ROLES.SALES, ROLES.SUPERVISOR, ROLES.PRODUCTION,ROLES.CUSTOMER]),
   require2FAForAdmin,
   patchAssignPiece
 );
 
 router.post(
   "/:id/takeoff/items/:itemId/timer/start",
-  requireRoles([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  requireRoles([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PRODUCTION,ROLES.CUSTOMER]),
   require2FAForAdmin,
   postTimerStart
 );
 router.post(
   "/:id/takeoff/items/:itemId/timer/pause",
-  requireRoles([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PRODUCTION]),
+  requireRoles([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.PRODUCTION,ROLES.CUSTOMER]),
   require2FAForAdmin,
   postTimerPause
 );

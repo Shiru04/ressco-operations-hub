@@ -245,6 +245,27 @@ async function resetUserPassword(userId, password) {
   return { id: userId, email: user.email };
 }
 
+async function updateSelf(id, data) {
+  if (data.email) {
+    const exists = await User.findOne({
+      email: data.email,
+      _id: { $ne: id }
+    });
+    if (exists) {
+      throw new Error("Email already in use");
+    }
+  }
+
+  return User.findByIdAndUpdate(id, data, {
+    new: true,
+    runValidators: true
+  }).select("name email role twoFactorEnabled");
+};
+async function getUserById(id) {
+  return User.findById(id).select("-password");
+}
+
+
 module.exports = {
   listUsers,
   createUser,
@@ -253,4 +274,6 @@ module.exports = {
   set2faEnforcement,
   setUserProductionQueues,
   resetUserPassword,
+  updateSelf,
+  getUserById,
 };

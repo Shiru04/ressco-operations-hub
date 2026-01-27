@@ -42,3 +42,30 @@ export async function apiResetUserPassword(id, password) {
   const { data } = await http.patch(`/api/users/${id}/password`, { password });
   return data.data;
 }
+
+/**
+ * Get current logged-in user's profile
+ */
+export async function apiGetMyProfile() {
+  const { data } = await http.get("/api/users/me");
+  return data.data;
+}
+
+/**
+ * Update current user's profile (name, email)
+ */
+export async function apiUpdateMyProfile(payload) {
+  const { data } = await http.patch("/api/users/me", payload);
+  return data.data;
+}
+
+/**
+ * Change current user's password
+ */
+export async function apiChangeMyPassword(currentPassword, newPassword) {
+  const { data } = await http.patch("/api/users/me/password", {
+    currentPassword,
+    newPassword
+  });
+  return data.data;
+}
